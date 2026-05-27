@@ -1,0 +1,42 @@
+# =============================================================================
+# MFG Control — Dependências
+# =============================================================================
+
+# API
+fastapi==0.118.0
+uvicorn==0.37.0
+pydantic==2.9.2
+pydantic-settings==2.11.0
+python-multipart==0.0.20
+
+# Ambiente
+python-dotenv==1.1.1
+
+# HTTP
+requests==2.32.3
+httpx==0.27.2
+
+# Google Vertex AI / Gemini
+google-cloud-aiplatform==1.71.1
+vertexai==1.71.1
+
+# LangChain / LangGraph (agente IA)
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-google-vertexai==2.0.9
+langgraph==1.0.1
+langgraph-checkpoint-sqlite==3.0.3
+
+# Análise de dados e geração de gráficos
+pandas==2.3.3
+numpy==2.3.3
+matplotlib==3.10.9
+tabulate==0.10.0
+scipy==1.17.1
+fpdf2==2.8.7
+openpyxl==3.1.5
+
+# Utilitários
+structlog==25.5.0
+tenacity==9.0.0
+sse-starlette==3.0.2

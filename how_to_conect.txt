@@ -1,0 +1,29 @@
+Cloud SQL Proxy — Guia Rápido (Windows)
+
+0. Instalar o SDK:
+https://docs.cloud.google.com/sdk/docs/install-sdk
+1. Download
+Baixe o executável (Windows 64-bit):
+https://docs.cloud.google.com/sql/docs/mysql/sql-proxy?hl=pt-br#windows-64-bit
+---
+2. Configurar credenciais (ADC)
+Defina a variável de ambiente no PowerShell:
+PowerShell
+$env:GOOGLE_APPLICATION_CREDENTIALS="C:\CloudSQL\credentials.json"
+Show more lines
+Referências úteis:
+
+ https://docs.cloud.google.com/docs/authentication/application-default-credentials
+ https://docs.cloud.google.com/docs/authentication/provide-credentials-adc#how-to
+---
+3. Executar o Proxy
+No mesmo diretório do executável:
+PowerShell
+dev → ./cloud-sql-proxy.exe --address 127.0.0.1 --port 5432 dataservices-non-prod:us-central1:posh-postgre-dev
+prod → ./cloud-sql-proxy.exe --address 127.0.0.1 --port 5432 dataservices-non-prod:us-central1:posh-postgre-prod
+Show more lines
+---
+4. Conectar
+Use o cliente PostgreSQL apontando para:
+Host: 127.0.0.1
+Port: 5432
