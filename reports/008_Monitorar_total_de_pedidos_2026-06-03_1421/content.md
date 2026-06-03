@@ -1,0 +1,1 @@
+Total de pedidos de 02/06/2026 a 03/06/2026: 0

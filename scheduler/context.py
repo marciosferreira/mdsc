@@ -9,12 +9,15 @@ from datetime import date, timedelta
 
 
 class TaskContext:
-    def __init__(self, session_id: str, backend_url: str = "http://localhost:8000", user_id: str | None = None, is_test: bool = False):
+    def __init__(self, session_id: str, backend_url: str = "http://localhost:8000", user_id: str | None = None, is_test: bool = False, notify_enabled: bool = True, task_name: str = ""):
         self.session_id = session_id
         self.user_id    = user_id
         self._backend_url = backend_url.rstrip("/")
         self._tokens: list[str] = []
         self._is_test = is_test
+        self._notify_enabled = notify_enabled
+        self._task_name = task_name
+        self._notify_called = False
         self._test_alerts: list[dict] = []  # alertas capturados durante teste (não persistidos)
 
     # ── API local ─────────────────────────────────────────────────────────────
@@ -39,7 +42,7 @@ class TaskContext:
             rows = ctx.sql('''
                 SELECT status::text, COUNT(*) AS total
                 FROM purchase_order
-                WHERE issue_date::date = CURRENT_DATE
+                WHERE created_at::date = CURRENT_DATE
                 GROUP BY status
             ''')
             df = pd.DataFrame(rows)
@@ -221,6 +224,9 @@ class TaskContext:
             value: Valor numérico observado (opcional, exibido no painel).
             threshold: Valor de referência (opcional, exibido no painel).
         """
+        self._notify_called = True
+        if not self._notify_enabled:
+            return
         if self._is_test:
             # Teste: captura sem persistir no painel de alertas
             self._test_alerts.append({"message": message, "value": value, "threshold": threshold})

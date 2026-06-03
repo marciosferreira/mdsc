@@ -31,7 +31,7 @@ Tasks agendadas buscam dados **exclusivamente via `ctx.sql()`** — query SELECT
 rows = ctx.sql(f"""
     SELECT po.status::text, COUNT(*) AS total
     FROM purchase_order po
-    WHERE po.issue_date::date BETWEEN '{from_date}' AND '{to_date}'
+    WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
     GROUP BY po.status
 """)
 df = pd.DataFrame(rows)
@@ -56,7 +56,7 @@ df = pd.DataFrame(rows)
 | `date`, `datetime`, `timedelta` | do módulo datetime |
 | `time`, `math`, `json`, `re` | stdlib leve (pré-injetados) |
 | `Counter`, `defaultdict` | collections (pré-injetados) |
-| `from_date`, `to_date` | objetos `date` — suportam `.strftime()`, `.year` etc. `str(from_date)` → YYYY-MM-DD |
+| `from_date`, `to_date` | objetos `date` — janela de execução do daemon (veja regra abaixo) |
 | `ctx` | TaskContext — métodos abaixo |
 
 ### Métodos do ctx
@@ -74,6 +74,37 @@ df = pd.DataFrame(rows)
 
 ---
 
+## Regra: date_range vs from_date/to_date
+
+`from_date` e `to_date` são calculados pelo daemon a partir do **`date_range`** da tarefa.
+Se `date_range` não estiver definido, usa a janela padrão da frequência:
+
+| `date_range` | Janela injetada |
+|---|---|
+| `ytd` | 1 jan do ano atual → hoje |
+| `mtd` | 1º do mês atual → hoje |
+| `today` | hoje → hoje |
+| `last_7d` | 7 dias atrás → hoje |
+| `last_30d` | 30 dias atrás → hoje |
+| `last_90d` | 90 dias atrás → hoje |
+| *(não definido)* | janela padrão da frequência (daily=1d, weekly=7d, monthly=30d, every_Xm=1d) |
+
+**Sempre que o usuário especificar um intervalo de análise, defina `date_range` ao criar a tarefa.**
+O task_code usa `from_date`/`to_date` normalmente — o daemon garante os valores corretos.
+
+| O usuário pediu | `date_range` correto |
+|---|---|
+| "do ano atual" / "do ano" | `ytd` |
+| "do mês" / "do mês atual" | `mtd` |
+| "últimos 30 dias" | `last_30d` |
+| "últimos 7 dias" | `last_7d` |
+| "de hoje" | `today` |
+| "relatório diário" | *(não definir — usa padrão da frequência)* |
+
+> **NUNCA** calcule o intervalo dentro do task_code com `ctx.today()` para substituir `date_range`. Defina `date_range` na tarefa e use `from_date`/`to_date` no código.
+
+---
+
 ## Templates canônicos
 
 ### Relatório PDF com gráfico
@@ -82,14 +113,14 @@ df = pd.DataFrame(rows)
 def run(from_date, to_date, ctx):
     rows = ctx.sql(f"""
         SELECT
-            po.issue_date::date          AS data,
+            po.created_at::date          AS data,
             po.status::text              AS status,
             COUNT(*)                     AS total_pedidos,
             SUM(oi.value_price_total)    AS valor_total
         FROM purchase_order po
         JOIN order_item oi ON oi.order_id = po.id
-        WHERE po.issue_date::date BETWEEN '{from_date}' AND '{to_date}'
-        GROUP BY po.issue_date::date, po.status
+        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
+        GROUP BY po.created_at::date, po.status
         ORDER BY data
     """)
 
@@ -151,10 +182,10 @@ def run(from_date, to_date, ctx):
 ```python
 def run(from_date, to_date, ctx):
     rows = ctx.sql(f"""
-        SELECT po.id, po.status::text, po.issue_date::date, c.name AS cliente
+        SELECT po.id, po.status::text, po.created_at::date, c.name AS cliente
         FROM purchase_order po
         JOIN customer c ON c.id = po.customer_id
-        WHERE po.issue_date::date BETWEEN '{from_date}' AND '{to_date}'
+        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
     """)
     df = pd.DataFrame(rows)
     return ctx.generate_excel(df, 'pedidos')
@@ -165,16 +196,16 @@ def run(from_date, to_date, ctx):
 ```python
 def run(from_date, to_date, ctx):
     rows_po = ctx.sql(f"""
-        SELECT po.id, po.status::text, po.issue_date::date, c.name AS cliente
+        SELECT po.id, po.status::text, po.created_at::date, c.name AS cliente
         FROM purchase_order po
         JOIN customer c ON c.id = po.customer_id
-        WHERE po.issue_date::date BETWEEN '{from_date}' AND '{to_date}'
+        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
     """)
     rows_itens = ctx.sql(f"""
         SELECT oi.order_id, oi.quantity, oi.value_price_total, oi.product_group::text
         FROM order_item oi
         JOIN purchase_order po ON po.id = oi.order_id
-        WHERE po.issue_date::date BETWEEN '{from_date}' AND '{to_date}'
+        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
     """)
     df_po    = pd.DataFrame(rows_po)
     df_itens = pd.DataFrame(rows_itens)
@@ -184,25 +215,40 @@ def run(from_date, to_date, ctx):
     )
 ```
 
-### Monitor com alerta
+### Monitor com gatilho condicional (preferido)
+
+> Para tarefas que só devem executar (e notificar) quando uma condição for atingida,
+> use os parâmetros `condition_sql`, `condition_operator` e `condition_threshold` ao criar a tarefa.
+> **Não escreva `ctx.notify()` no código** — a notificação é automática quando a condição é atingida.
+
+Exemplos de criação via `schedule_task`:
 
 ```python
-def run(from_date, to_date, ctx):
-    hoje = ctx.today()
-    rows = ctx.sql(f"""
-        SELECT status::text, COUNT(*) AS total
-        FROM purchase_order
-        WHERE issue_date::date = '{hoje}'
-        GROUP BY status
-    """)
-    df = pd.DataFrame(rows)
-    inconsistentes = df.loc[df['status'] == 'INCONSISTENCY', 'total'].sum() if not df.empty else 0
-    if inconsistentes > 50:
-        ctx.notify(f'{inconsistentes} pedidos com inconsistência hoje', value=inconsistentes, threshold=50)
-    return f'Pedidos com inconsistência: {inconsistentes}'
+# Alerta se inconsistências > 50
+condition_sql = "SELECT COUNT(*) FROM purchase_order WHERE status='INCONSISTENCY' AND created_at::date=CURRENT_DATE"
+condition_operator = ">"
+condition_threshold = 50
+
+# Alerta se não houver vendas hoje
+condition_sql = "SELECT id FROM purchase_order WHERE created_at::date = CURRENT_DATE"
+condition_operator = "is_empty"
+
+# Alerta se houver pedido atrasado
+condition_sql = "SELECT id FROM order_item WHERE delivery_week < TO_CHAR(CURRENT_DATE,'IYYY-IW')"
+condition_operator = "is_not_empty"
 ```
 
+A notificação automática inclui o detalhe da condição: ex. "Monitor de inconsistências: 75 > 50".
+
 ---
+
+## Notificações automáticas
+
+Quando a tarefa tem `notify=True`, o runner dispara automaticamente uma notificação com o nome da tarefa ao final de cada execução bem-sucedida — **sem precisar de `ctx.notify()` no código**.
+
+**PROIBIDO usar `ctx.notify()` no task_code para implementar condições de threshold.**
+Se o objetivo é "alertar quando X > N", use `condition_sql` + `condition_operator` + `condition_threshold` na tarefa.
+O sistema bloqueia o `save_task_code` se detectar `ctx.notify()` em tarefas que já têm `condition_sql`.
 
 ## Monitores (every\_Xm / every\_Xh)
 
@@ -211,6 +257,16 @@ Monitores DEVEM sempre retornar uma string com o valor atual, mesmo quando o thr
 ---
 
 ## Erros comuns — NÃO faça isso
+
+```python
+# ERRADO — ctx.notify() sem o usuário ter pedido alertas
+def run(from_date, to_date, ctx):
+    ...
+    ctx.notify('Gráfico gerado')   # proibido em tarefas de relatório/gráfico
+
+# CERTO — ctx.notify() só quando notify=True foi definido na criação da tarefa
+# e o usuário pediu monitoramento/alertas explicitamente
+```
 
 ```python
 # ERRADO — import dentro do run() causa ImportError

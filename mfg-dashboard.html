@@ -115,6 +115,27 @@
 
   /* PER-CHART CONTROLS */
   .card-controls { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .tc-seg { display:flex; border:1px solid var(--border); overflow:hidden; }
+  .tc-seg-btn, .tc-grp-btn { background:transparent; border:none; border-right:1px solid var(--border); color:var(--txt3); font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.07em; padding:3px 8px; cursor:pointer; transition:all .15s; }
+  .tc-seg-btn:last-child, .tc-grp-btn:last-child { border-right:none; }
+  .tc-seg-btn:hover, .tc-grp-btn:hover { color:var(--txt); background:rgba(255,255,255,.04); }
+  .tc-seg-btn.active, .tc-grp-btn.active { background:rgba(56,189,248,.15); color:var(--cyan); }
+  .tc-list { display:flex; flex-direction:column; gap:3px; flex:1; overflow:hidden; }
+  .tc-row { display:grid; grid-template-columns:22px 1fr auto; align-items:center; gap:8px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+  .tc-rank { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--txt3); text-align:right; }
+  .tc-name-cell { display:flex; align-items:center; gap:5px; overflow:hidden; min-width:0; }
+  .tc-name { font-size:10px; color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:1; }
+  .tc-badges { display:flex; gap:3px; flex-shrink:0; }
+  .tc-badge { font-family:'JetBrains Mono',monospace; font-size:8px; padding:0 4px; border-radius:2px; white-space:nowrap; }
+  .tc-bar-wrap { display:flex; align-items:center; gap:6px; min-width:80px; }
+  .tc-bar-bg { flex:1; height:4px; background:rgba(255,255,255,.06); border-radius:2px; }
+  .tc-bar-fill { height:4px; background:var(--blue); border-radius:2px; transition:width .25s; }
+  .tc-val { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--txt2); white-space:nowrap; }
+  .tc-pager { display:flex; align-items:center; justify-content:space-between; padding-top:6px; border-top:1px solid var(--border); margin-top:4px; }
+  .tc-pager-btn { background:transparent; border:1px solid var(--border); color:var(--txt3); font-family:'JetBrains Mono',monospace; font-size:9px; padding:2px 8px; cursor:pointer; transition:all .15s; }
+  .tc-pager-btn:hover:not(:disabled) { border-color:var(--cyan); color:var(--cyan); }
+  .tc-pager-btn:disabled { opacity:.3; cursor:default; }
+  .tc-pager-info { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--txt3); }
   .cf-sel {
     background:var(--surface); border:1px solid var(--border);
     color:var(--txt2); font-family:'JetBrains Mono',monospace;
@@ -122,9 +143,24 @@
   }
   .cf-sel:hover, .cf-sel:focus { border-color:rgba(56,189,248,.4); color:var(--cyan); }
   .cf-sel option { background:var(--panel); color:var(--txt); }
+  .date-range-picker { display:none; align-items:center; gap:4px; }
+  .date-range-picker.visible { display:flex; }
+  .cf-date {
+    background:var(--surface); border:1px solid var(--border);
+    color:var(--txt2); font-family:'JetBrains Mono',monospace;
+    font-size:9px; padding:3px 6px; cursor:pointer; outline:none;
+    color-scheme: dark;
+  }
+  .cf-date:focus { border-color:rgba(56,189,248,.4); color:var(--cyan); }
+  .cf-apply {
+    background:rgba(56,189,248,.12); border:1px solid rgba(56,189,248,.3);
+    color:var(--cyan); font-family:'JetBrains Mono',monospace;
+    font-size:9px; padding:3px 8px; cursor:pointer; outline:none;
+  }
+  .cf-apply:hover { background:rgba(56,189,248,.22); }
 
   /* KPIs */
-  .kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:20px; }
+  .kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:20px; }
   .kpi { background:var(--panel); border:1px solid var(--border); padding:16px 18px; position:relative; overflow:hidden; transition:transform .2s; }
   .kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--kc); }
   .kpi:hover { transform:translateY(-2px); }
@@ -180,7 +216,7 @@
   .kpi { animation:fadeUp .5s ease both; }
   .kpi:nth-child(1){animation-delay:.04s} .kpi:nth-child(2){animation-delay:.08s}
   .kpi:nth-child(3){animation-delay:.12s} .kpi:nth-child(4){animation-delay:.16s}
-  .kpi:nth-child(5){animation-delay:.20s}
+  .kpi:nth-child(5){animation-delay:.20s} .kpi:nth-child(6){animation-delay:.24s}
   .card { animation:fadeUp .5s ease both; animation-delay:.2s; }
 
   /* CHAT SIDEBAR — push via margin + fixed overlay */
@@ -764,15 +800,6 @@
 </header>
 
 <nav class="tab-nav">
-  <button class="tab-btn active" id="tab-btn-dashboard" onclick="switchTab('dashboard')">
-    <i class="fa-solid fa-gauge-high" style="margin-right:5px;"></i> Dashboard
-  </button>
-  <button class="tab-btn" id="tab-btn-arquitetura" onclick="switchTab('arquitetura')" style="display:none">
-    <i class="fa-solid fa-diagram-project" style="margin-right:5px;"></i> Arquitetura
-  </button>
-  <button class="tab-btn" id="tab-btn-exemplos" onclick="switchTab('exemplos')" style="display:none">
-    <i class="fa-solid fa-terminal" style="margin-right:5px;"></i> Exemplos
-  </button>
   <button onclick="openAudit()" title="Auditoria de erros de geração de código" style="margin-left:auto;background:none;border:1px solid #1e293b;border-radius:5px;color:#475569;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;padding:4px 10px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:color .15s,border-color .15s;" onmouseenter="this.style.color='#94a3b8';this.style.borderColor='#334155';" onmouseleave="this.style.color='#475569';this.style.borderColor='#1e293b';">
     <i class="fa-solid fa-bug" style="font-size:10px;"></i> error audit
   </button>
@@ -959,19 +986,27 @@
   <div class="section-bar">
     <div class="section-lbl">Indicadores — Supply Chain Brazil</div>
     <div class="card-controls">
-      <select class="cf-sel" id="kpiFromSel" onchange="refreshAll()">
+      <select class="cf-sel" id="kpiFromSel" onchange="onDateRangeChange()">
         <option value="today">Hoje</option>
         <option value="week">Esta semana</option>
         <option value="month">Este mês</option>
         <option value="year">Este ano</option>
         <option value="lastyear">Ano passado</option>
+        <option value="custom">Personalizado...</option>
         <option value="" selected>Total</option>
       </select>
+      <span id="dateLoadSpinner" style="display:none;animation:spin .7s linear infinite;font-size:11px;color:var(--cyan)">↻</span>
+      <div class="date-range-picker" id="customDatePicker">
+        <input class="cf-date" type="date" id="customFrom">
+        <span style="color:var(--txt3);font-size:9px">→</span>
+        <input class="cf-date" type="date" id="customTo">
+        <button class="cf-apply" id="customApplyBtn" onclick="applyCustomRange()">Aplicar</button>
+      </div>
     </div>
   </div>
   <div class="kpi-row" id="kpiRow"></div>
 
-  <!-- Row 1: Orders by month + Orders by status -->
+  <!-- Row 1: Orders by month + Alertas por cliente -->
   <div class="g2">
     <div class="card">
       <div class="card-head">
@@ -987,54 +1022,96 @@
     </div>
     <div class="card">
       <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--red)"></div>Erros de itens por tipo</div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:230px"><canvas id="errorsByTypeChart"></canvas></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 2: Top customers + Error ratio + Items by status -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--blue)"></div>Top 10 clientes por pedidos</div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="topCustomersChart"></canvas></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--red)"></div>Itens com erro vs sem erro</div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="errorRatioChart"></canvas></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--purple)"></div>Itens por status</div>
-      </div>
-      <div class="card-body">
-        <div class="legend">
-          <div class="leg"><div class="leg-sq" style="background:rgba(96,165,250,.8)"></div>Qtd. itens</div>
-          <div class="leg"><div class="leg-sq" style="background:rgba(251,191,36,.7)"></div>Valor total (R$)</div>
+        <div class="card-title"><div class="ctdot" style="background:var(--orange)"></div>Alertas resolvidos por cliente</div>
+        <div class="card-controls">
+          <div class="tc-seg" id="alertDimGrpSeg">
+            <button class="tc-grp-btn active" data-groupby="name" onclick="setAlertDimGroupBy(this)">Nome</button>
+            <button class="tc-grp-btn" data-groupby="cnpj" onclick="setAlertDimGroupBy(this)">CNPJ</button>
+            <button class="tc-grp-btn" data-groupby="state" onclick="setAlertDimGroupBy(this)">Estado</button>
+            <button class="tc-grp-btn" data-groupby="city" onclick="setAlertDimGroupBy(this)">Cidade</button>
+            <button class="tc-grp-btn" data-groupby="channel" onclick="setAlertDimGroupBy(this)">Canal</button>
+          </div>
         </div>
-        <div class="ch-wrap" style="height:220px"><canvas id="itemStatusChart"></canvas></div>
+      </div>
+      <div class="card-body">
+        <div id="alertDimList" style="height:230px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;"></div>
       </div>
     </div>
   </div>
 
-  <!-- Row 3: Delivery month + Alert resolve by status -->
+  <!-- Row 2: Top customers + Error ratio -->
   <div class="g2">
     <div class="card">
       <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--cyan)"></div>Pedidos recebidos por mês de entrega</div>
+        <div class="card-title"><div class="ctdot" style="background:var(--blue)"></div>Clientes por pedidos processados</div>
+        <div class="card-controls">
+          <div class="tc-seg">
+            <button class="tc-seg-btn active" data-metric="total_orders" onclick="setTopCustomersMetric(this)">Pedidos</button>
+            <button class="tc-seg-btn" data-metric="total_items" onclick="setTopCustomersMetric(this)">Itens</button>
+            <button class="tc-seg-btn" data-metric="total_value" onclick="setTopCustomersMetric(this)">Valor</button>
+          </div>
+          <div class="tc-seg">
+            <button class="tc-grp-btn active" data-groupby="name" onclick="setTopCustomersGroupBy(this)">Nome</button>
+            <button class="tc-grp-btn" data-groupby="cnpj" onclick="setTopCustomersGroupBy(this)">CNPJ</button>
+          </div>
+        </div>
       </div>
       <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="deliveryMonthChart"></canvas></div>
+        <div id="topCustomersList" style="height:220px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><div class="ctdot" style="background:var(--red)"></div>Itens com inconsistência vs sem inconsistência</div>
+      </div>
+      <div class="card-body">
+        <div class="ch-wrap" style="height:220px"><canvas id="errorRatioChart"></canvas></div>
+        <div id="errorRatioStats" style="display:flex;justify-content:space-around;padding:8px 4px 2px;border-top:1px solid var(--border);margin-top:6px;gap:4px">
+          <div style="text-align:center;flex:1">
+            <div id="erStatOrders" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">pedidos afetados</div>
+          </div>
+          <div style="text-align:center;flex:1">
+            <div id="erStatPct" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">% dos pedidos</div>
+          </div>
+          <div style="text-align:center;flex:1">
+            <div id="erStatAvg" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">itens/pedido afetado</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Value trend + Alert resolve by status -->
+  <div class="g2">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><div class="ctdot" style="background:var(--purple)"></div>Valor vendido ao longo do tempo</div>
+        <div class="card-controls">
+          <select class="cf-sel" id="valueTrendGranSel" onchange="setValueTrendGranularity(this)">
+            <option value="day">Dia</option>
+            <option value="week">Semana</option>
+            <option value="month" selected>Mês</option>
+            <option value="year">Ano</option>
+          </select>
+          <select class="cf-sel" id="valueTrendCustomerSel" onchange="setValueTrendCustomer(this)" style="max-width:160px">
+            <option value="">Todos os clientes</option>
+          </select>
+          <select class="cf-sel" id="valueTrendChannelSel" onchange="setValueTrendChannel(this)">
+            <option value="">Canal</option>
+          </select>
+          <select class="cf-sel" id="valueTrendStateSel" onchange="setValueTrendState(this)">
+            <option value="">Estado</option>
+          </select>
+          <select class="cf-sel" id="valueTrendCitySel" onchange="setValueTrendCity(this)">
+            <option value="">Cidade</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="ch-wrap" style="height:220px"><canvas id="valueTrendChart"></canvas></div>
       </div>
     </div>
     <div class="card">
@@ -1047,7 +1124,7 @@
     </div>
   </div>
 
-  <!-- Row 4: Top products + Items by product group -->
+  <!-- Row 4: Top products + Pedidos por dimensão de cliente -->
   <div class="g2">
     <div class="card">
       <div class="card-head">
@@ -1055,6 +1132,26 @@
       </div>
       <div class="card-body">
         <div class="ch-wrap" style="height:220px"><canvas id="topProductsChart"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><div class="ctdot" style="background:var(--purple)"></div>Pedidos por dimensão de cliente</div>
+        <div class="card-controls">
+          <div class="tc-seg" id="custDimMetricSeg">
+            <button class="tc-seg-btn active" data-metric="total_orders" onclick="setCustDimMetric(this)">Pedidos</button>
+            <button class="tc-seg-btn" data-metric="total_items" onclick="setCustDimMetric(this)">Itens</button>
+            <button class="tc-seg-btn" data-metric="total_value" onclick="setCustDimMetric(this)">Valor</button>
+          </div>
+          <div class="tc-seg" id="custDimGrpSeg">
+            <button class="tc-grp-btn active" data-groupby="channel" onclick="setCustDimGroupBy(this)">Canal</button>
+            <button class="tc-grp-btn" data-groupby="state" onclick="setCustDimGroupBy(this)">Estado</button>
+            <button class="tc-grp-btn" data-groupby="city" onclick="setCustDimGroupBy(this)">Cidade</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="ch-wrap" style="height:220px"><canvas id="custDimChart"></canvas></div>
       </div>
     </div>
   </div>
@@ -1248,6 +1345,33 @@ const errorBarPlugin = {
 };
 
 // ── BRAZIL DATA HELPERS ────────────────────────────────
+async function applyCustomRange() {
+  const btn = document.getElementById('customApplyBtn');
+  btn.disabled = true;
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  btn.style.gap = '4px';
+  btn.innerHTML = '<span style="display:inline-block;animation:spin .7s linear infinite">↻</span> Carregando…';
+  try {
+    await refreshAll();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Aplicar';
+    btn.style.gap = '';
+  }
+}
+
+function onDateRangeChange() {
+  const range = document.getElementById('kpiFromSel').value;
+  const picker = document.getElementById('customDatePicker');
+  if (range === 'custom') {
+    picker.classList.add('visible');
+  } else {
+    picker.classList.remove('visible');
+    refreshAll();
+  }
+}
+
 function brazilDateParam() {
   const range = document.getElementById('kpiFromSel').value;
   const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -1275,6 +1399,15 @@ function brazilDateParam() {
     const to   = new Date(today.getFullYear() - 1, 11, 31);
     return `from=${fmt(from)}&to=${fmt(to)}`;
   }
+  if (range === 'custom') {
+    const from = document.getElementById('customFrom').value;
+    const to   = document.getElementById('customTo').value;
+    if (!from && !to) return '';
+    const parts = [];
+    if (from) parts.push(`from=${from}`);
+    if (to)   parts.push(`to=${to}`);
+    return parts.join('&');
+  }
   return '';
 }
 
@@ -1287,13 +1420,14 @@ const PALETTE = [
 
 // ── PER-CHART REFRESH FUNCTIONS ────────────────────────
 
-async function refreshKPIs(ordSum, itmSum) {
+async function refreshKPIs(ordSum, itmSum, alertPending) {
   try {
     const totalOrders  = ordSum.by_status.reduce((a,r) => a + Number(r.total), 0);
     const totalItems   = itmSum.by_status.reduce((a,r) => a + Number(r.total_items), 0);
     const totalQty     = itmSum.by_status.reduce((a,r) => a + Number(r.total_qty), 0);
     const totalValue   = itmSum.by_status.reduce((a,r) => a + Number(r.total_value), 0);
     const uniqueCust   = Number(ordSum.unique_customers_total ?? 0);
+    const pendingAlerts = Number((alertPending?.[0]?.total) ?? 0);
     const fmtVal = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0});
     const kpis = [
       { lbl:'Total de pedidos', val: totalOrders.toLocaleString('pt-BR'), sub:'purchase orders', kc:'var(--cyan)' },
@@ -1301,6 +1435,7 @@ async function refreshKPIs(ordSum, itmSum) {
       { lbl:'Quantidade total', val: totalQty.toLocaleString('pt-BR'), sub:'unidades', kc:'var(--green)' },
       { lbl:'Valor total', val: fmtVal(totalValue), sub:'valor dos itens', kc:'var(--yellow)' },
       { lbl:'Clientes únicos', val: uniqueCust.toLocaleString('pt-BR'), sub:'com pedidos no período', kc:'var(--purple)' },
+      { lbl:'Alerts pendentes', val: pendingAlerts.toLocaleString('pt-BR'), sub:'aguardando resolução', kc:'var(--red)' },
     ];
     document.getElementById('kpiRow').innerHTML = kpis.map(k => `
       <div class="kpi" style="--kc:${k.kc}">
@@ -1338,42 +1473,262 @@ async function refreshOrdersMonth(ordSum) {
   } catch(e) { console.error('ordersMonthChart:', e); }
 }
 
-async function refreshErrorsByType(errData) {
-  try {
-    const d = errData || [];
-    const labels = d.map(r => r.error_type.replace(/_/g, ' '));
-    mkChart('errorsByTypeChart', {
-      type: 'pie',
-      data: { labels, datasets: [{ data: d.map(r => Number(r.total)), backgroundColor: PALETTE, borderWidth: 0, hoverOffset: 8 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'right', labels: { color: tc, font: { size: 10, family: 'JetBrains Mono' }, boxWidth: 10, padding: 8 } },
-          tooltip: { ...tip(), callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toLocaleString('pt-BR')}` } }
-        }
-      }
-    });
-  } catch(e) { console.error('errorsByTypeChart:', e); }
+
+let _topCustomersData = [];
+let _topCustomersMetric = 'total_orders';
+let _topCustomersGroupBy = 'name';
+let _topCustomersPage = 0;
+const TC_PAGE_SIZE = 8;
+
+function setTopCustomersMetric(btn) {
+  _topCustomersMetric = btn.dataset.metric;
+  _topCustomersPage = 0;
+  document.querySelectorAll('.tc-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+  _renderTopCustomers();
+}
+
+function setTopCustomersGroupBy(btn) {
+  _topCustomersGroupBy = btn.dataset.groupby;
+  _topCustomersPage = 0;
+  document.querySelectorAll('.tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
+  const dateParam = brazilDateParam();
+  const parts = dateParam ? [dateParam, `group_by=${_topCustomersGroupBy}`] : [`group_by=${_topCustomersGroupBy}`];
+  api(`/brazil/orders/summary?${parts.join('&')}`)
+    .then(ordSum => { _topCustomersData = ordSum.top_customers || []; _topCustomersPage = 0; _renderTopCustomers(); })
+    .catch(e => console.error('topCustomers groupBy:', e));
+}
+
+function _renderTopCustomers() {
+  const el = document.getElementById('topCustomersList');
+  if (!el) return;
+  const metric = _topCustomersMetric;
+  const isCurrency = metric === 'total_value';
+  const sorted = [..._topCustomersData].sort((a,b) => Number(b[metric]) - Number(a[metric]));
+  const total = sorted.length;
+  const maxPages = Math.ceil(total / TC_PAGE_SIZE);
+  const start = _topCustomersPage * TC_PAGE_SIZE;
+  const page = sorted.slice(start, start + TC_PAGE_SIZE);
+  const maxVal = Number(sorted[0]?.[metric] || 1);
+
+  const metricLabels = { total_orders:'Pedidos', total_items:'Itens', total_value:'Valor' };
+  const fmtVal = v => isCurrency
+    ? 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+    : Number(v).toLocaleString('pt-BR');
+
+  const rows = page.map((r, i) => {
+    const rank = start + i + 1;
+    const cnpj = r.customer_cnpj || '';
+    const name = r.customer || '';
+    const label = (_topCustomersGroupBy === 'cnpj' && cnpj) ? `${cnpj} (${name})` : name;
+    const val = Number(r[metric]);
+    const pct = maxVal > 0 ? (val / maxVal * 100).toFixed(1) : 0;
+    const cA = Number(r.cnt_approved || 0);
+    const cI = Number(r.cnt_inconsistency || 0);
+    const cR = Number(r.cnt_rejected || 0);
+    const cP = Number(r.cnt_pending || 0);
+    const bdg = (cnt, color, title) => cnt > 0
+      ? `<span class="tc-badge" style="color:${color};background:${color}22" title="${title}: ${cnt}">${cnt}</span>`
+      : '';
+    const badges = bdg(cR,'#ef4444','Rejeitados') + bdg(cI,'#eab308','Inconsistência') + bdg(cA,'#22c55e','Aprovados') + bdg(cP,'#6b7280','Pendentes');
+    return `<div class="tc-row">
+      <span class="tc-rank">${rank}</span>
+      <div class="tc-name-cell">
+        <span class="tc-name" title="${label}">${label}</span>
+        <div class="tc-badges">${badges}</div>
+      </div>
+      <div class="tc-bar-wrap">
+        <div class="tc-bar-bg"><div class="tc-bar-fill" style="width:${pct}%"></div></div>
+        <span class="tc-val">${fmtVal(val)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="tc-list">${rows}</div>
+    <div class="tc-pager">
+      <button class="tc-pager-btn" onclick="_tcPage(-1)" ${_topCustomersPage === 0 ? 'disabled' : ''}>◀ Anterior</button>
+      <span class="tc-pager-info">${start+1}–${Math.min(start+TC_PAGE_SIZE,total)} de ${total}</span>
+      <button class="tc-pager-btn" onclick="_tcPage(1)" ${_topCustomersPage >= maxPages-1 ? 'disabled' : ''}>Próximo ▶</button>
+    </div>`;
+}
+
+function _tcPage(dir) {
+  const total = _topCustomersData.length;
+  const maxPages = Math.ceil(total / TC_PAGE_SIZE);
+  _topCustomersPage = Math.max(0, Math.min(_topCustomersPage + dir, maxPages - 1));
+  _renderTopCustomers();
 }
 
 async function refreshTopCustomers(ordSum) {
   try {
-    const d = ordSum.top_customers.slice(0,10);
-    const labels = d.map(r => r.customer.length > 20 ? r.customer.slice(0,20)+'…' : r.customer);
-    mkChart('topCustomersChart', {
-      type:'bar',
-      data:{ labels, datasets:[{ data: d.map(r=>Number(r.total_orders)), backgroundColor: PALETTE, borderRadius:3, borderSkipped:false }] },
-      options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
-        plugins:{ legend:{display:false}, tooltip:tip() },
-        scales:{ x:scX(), y:{ grid:{display:false}, ticks:{color:tc, font:{size:10,family:'JetBrains Mono'}} } }
+    _topCustomersData = ordSum.top_customers || [];
+    _topCustomersPage = 0;
+    _renderTopCustomers();
+  } catch(e) { console.error('topCustomersList:', e); }
+}
+
+// ── Alertas resolvidos por cliente ────────────────────────────────────────────
+const AD_COLORS = [
+  'rgba(248,113,113,.85)',
+  'rgba(251,191,36,.85)',
+  'rgba(52,211,153,.85)',
+  'rgba(96,165,250,.85)',
+  'rgba(167,139,250,.85)',
+  'rgba(251,146,60,.85)',
+  'rgba(34,211,238,.85)',
+];
+let _alertDimGroupBy = 'name';
+let _alertDimPage    = 0;
+let _alertDimData    = [];
+const AD_PAGE_SIZE   = 8;
+
+function setAlertDimGroupBy(btn) {
+  _alertDimGroupBy = btn.dataset.groupby;
+  _alertDimPage = 0;
+  document.querySelectorAll('#alertDimGrpSeg .tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
+  _loadAlertDim();
+}
+
+function _loadAlertDim() {
+  const dateParam = brazilDateParam();
+  const parts = [`group_by=${_alertDimGroupBy}`];
+  if (dateParam) parts.unshift(dateParam);
+  api(`/brazil/alert-resolves/by-dim?${parts.join('&')}`)
+    .then(rows => { _alertDimData = _aggregateAlertDim(rows); _alertDimPage = 0; _renderAlertDim(); })
+    .catch(e => console.error('alertDimList:', e));
+}
+
+function _aggregateAlertDim(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = (r.label || '') + '|||' + (r.secondary || '');
+    if (!map.has(key)) map.set(key, {label: r.label || '', secondary: r.secondary || '', total: 0, breakdown: {}});
+    const e = map.get(key);
+    e.total += Number(r.cnt);
+    e.breakdown[r.error_type] = (e.breakdown[r.error_type] || 0) + Number(r.cnt);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function _renderAlertDim() {
+  const el = document.getElementById('alertDimList');
+  if (!el) return;
+  const data     = _alertDimData;
+  const total    = data.length;
+  const maxPages = Math.ceil(total / AD_PAGE_SIZE);
+  const start    = _alertDimPage * AD_PAGE_SIZE;
+  const page     = data.slice(start, start + AD_PAGE_SIZE);
+  const allTypes = [...new Set(data.flatMap(r => Object.keys(r.breakdown)))].sort();
+
+  const rows = page.map((r, i) => {
+    const rank = start + i + 1;
+    const tooltip = r.secondary ? `${r.label} — ${r.secondary}` : r.label;
+    const subLbl  = r.secondary
+      ? `<span style="font-size:8px;color:var(--txt3);margin-left:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.secondary}</span>`
+      : '';
+    const segments = allTypes
+      .filter(t => r.breakdown[t] > 0)
+      .map(t => {
+        const color = AD_COLORS[allTypes.indexOf(t) % AD_COLORS.length];
+        return `<div style="flex:${r.breakdown[t]};background:${color};height:100%;" title="${t}: ${r.breakdown[t]}"></div>`;
+      }).join('');
+
+    const badges = allTypes
+      .filter(t => r.breakdown[t] > 0)
+      .map(t => {
+        const color = AD_COLORS[allTypes.indexOf(t) % AD_COLORS.length];
+        return `<span class="tc-badge" style="color:${color};background:${color}22" title="${t}">${r.breakdown[t]}</span>`;
+      }).join('');
+
+    return `<div class="tc-row">
+      <span class="tc-rank">${rank}</span>
+      <div class="tc-name-cell" style="min-width:0;overflow:hidden;">
+        <span class="tc-name" title="${tooltip}" style="flex-shrink:1;">${r.label}</span>${subLbl}
+        <div class="tc-badges">${badges}</div>
+      </div>
+      <div class="tc-bar-wrap">
+        <div class="tc-bar-bg" style="display:flex;overflow:hidden;">${segments}</div>
+        <span class="tc-val">${r.total}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="tc-list">${rows}</div>
+    <div class="tc-pager">
+      <button class="tc-pager-btn" onclick="_adPage(-1)" ${_alertDimPage === 0 ? 'disabled' : ''}>◀ Anterior</button>
+      <span class="tc-pager-info">${start + 1}–${Math.min(start + AD_PAGE_SIZE, total)} de ${total}</span>
+      <button class="tc-pager-btn" onclick="_adPage(1)" ${_alertDimPage >= maxPages - 1 ? 'disabled' : ''}>Próximo ▶</button>
+    </div>`;
+}
+
+function _adPage(dir) {
+  const maxPages = Math.ceil(_alertDimData.length / AD_PAGE_SIZE);
+  _alertDimPage = Math.max(0, Math.min(_alertDimPage + dir, maxPages - 1));
+  _renderAlertDim();
+}
+
+async function refreshAlertDim() {
+  _loadAlertDim();
+}
+
+let _custDimMetric  = 'total_orders';
+let _custDimGroupBy = 'channel';
+
+function setCustDimMetric(btn) {
+  _custDimMetric = btn.dataset.metric;
+  document.querySelectorAll('#custDimMetricSeg .tc-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+  _loadCustDim();
+}
+
+function setCustDimGroupBy(btn) {
+  _custDimGroupBy = btn.dataset.groupby;
+  document.querySelectorAll('#custDimGrpSeg .tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
+  _loadCustDim();
+}
+
+function _loadCustDim() {
+  const dateParam = brazilDateParam();
+  const parts = [`group_by=${_custDimGroupBy}`];
+  if (dateParam) parts.unshift(dateParam);
+  api(`/brazil/orders/by-customer-dim?${parts.join('&')}`)
+    .then(data => _renderCustDim(data))
+    .catch(e => console.error('custDimChart:', e));
+}
+
+function _renderCustDim(data) {
+  const d = (data || []).slice(0, 20);
+  const isCurrency = _custDimMetric === 'total_value';
+  const labels = d.map(r => r.label || 'N/A');
+  const values = d.map(r => Number(r[_custDimMetric]));
+  const metricLabel = { total_orders: 'Pedidos', total_items: 'Itens', total_value: 'Valor (R$)' }[_custDimMetric];
+  mkChart('custDimChart', {
+    type: 'bar',
+    data: { labels, datasets: [{ label: metricLabel, data: values, backgroundColor: PALETTE.map((c,i) => PALETTE[i % PALETTE.length]), borderRadius: 3, borderSkipped: false }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: {
+        legend: { display: false },
+        tooltip: { ...tip(), callbacks: { label: ctx => isCurrency
+          ? ' R$ ' + ctx.parsed.x.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : ' ' + ctx.parsed.x.toLocaleString('pt-BR') + (metricLabel === 'Itens' ? ' un' : '')
+        }}
+      },
+      scales: {
+        x: scX({ min: 0 }),
+        y: { grid: { display: false }, ticks: { color: tc, font: { size: 10, family: 'JetBrains Mono' } } }
       }
-    });
-  } catch(e) { console.error('topCustomersChart:', e); }
+    }
+  });
+}
+
+async function refreshCustDim() {
+  _loadCustDim();
 }
 
 async function refreshErrorRatio(itmSum) {
   try {
-    const r = itmSum.error_ratio || { with_error: 0, without_error: 0 };
+    const r = itmSum.error_ratio || { with_error: 0, without_error: 0, total_orders: 0, orders_with_inconsistency: 0, avg_items_per_affected_order: 0 };
     const withErr    = Number(r.with_error);
     const withoutErr = Number(r.without_error);
     const total      = withErr + withoutErr;
@@ -1381,7 +1736,7 @@ async function refreshErrorRatio(itmSum) {
     mkChart('errorRatioChart', {
       type: 'doughnut',
       data: {
-        labels: [`Com erro (${pct}%)`, 'Sem erro'],
+        labels: [`Com inconsistência (${pct}%)`, 'Sem inconsistência'],
         datasets: [{ data: [withErr, withoutErr], backgroundColor: ['rgba(248,113,113,.85)', 'rgba(52,211,153,.75)'], borderWidth: 0, hoverOffset: 8 }]
       },
       options: {
@@ -1392,59 +1747,141 @@ async function refreshErrorRatio(itmSum) {
         }
       }
     });
+    const totalOrders = Number(r.total_orders);
+    const affOrders   = Number(r.orders_with_inconsistency);
+    const orderPct    = totalOrders > 0 ? ((affOrders / totalOrders) * 100).toFixed(1) : '0.0';
+    const avg         = r.avg_items_per_affected_order != null ? Number(r.avg_items_per_affected_order).toFixed(1) : '—';
+    document.getElementById('erStatOrders').textContent = affOrders.toLocaleString('pt-BR');
+    document.getElementById('erStatPct').textContent    = `${orderPct}%`;
+    document.getElementById('erStatAvg').textContent    = avg;
   } catch(e) { console.error('errorRatioChart:', e); }
 }
 
-async function refreshItemStatus(itmSum) {
+let _valueTrendCnpjRoot   = '';
+let _valueTrendGranularity = 'month';
+let _valueTrendChannel    = '';
+let _valueTrendState      = '';
+let _valueTrendCity       = '';
+
+function setValueTrendCustomer(sel)    { _valueTrendCnpjRoot    = sel.value; _loadValueTrend(); }
+function setValueTrendGranularity(sel) { _valueTrendGranularity = sel.value; _loadValueTrend(); }
+function setValueTrendChannel(sel)     { _valueTrendChannel     = sel.value; _loadValueTrend(); }
+function setValueTrendState(sel)       { _valueTrendState       = sel.value; _loadValueTrend(); }
+function setValueTrendCity(sel)        { _valueTrendCity        = sel.value; _loadValueTrend(); }
+
+async function loadValueTrendCustomers() {
   try {
-    const d = itmSum.by_status;
-    const labels = d.map(r => r.status);
-    mkChart('itemStatusChart', {
-      type:'bar',
-      data:{ labels, datasets:[
-        { label:'Qtd. itens', data: d.map(r=>Number(r.total_items)), backgroundColor:'rgba(96,165,250,.8)', borderRadius:3, yAxisID:'y' },
-        { label:'Valor (R$)', data: d.map(r=>Number(r.total_value)), backgroundColor:'rgba(251,191,36,.7)', borderRadius:3, yAxisID:'y1' },
-      ]},
-      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{display:false}, tooltip:tip() },
-        scales:{
-          x: scX(),
-          y: scY({min:0}),
-          y1:{ position:'right', grid:{display:false}, ticks:{color:'#fbbf24', font:{size:10,family:'JetBrains Mono'}, callback:v=>'R$'+Math.round(v/1000)+'k'} }
-        }
-      }
-    });
-  } catch(e) { console.error('itemStatusChart:', e); }
+    const customers = await api('/brazil/customers');
+    const sel = document.getElementById('valueTrendCustomerSel');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Todos os clientes</option>' +
+      customers.map(c => `<option value="${c.cnpj_root}">${c.name}</option>`).join('');
+    if (cur) sel.value = cur;
+  } catch(e) { console.error('loadValueTrendCustomers:', e); }
 }
 
-
-async function refreshDeliveryMonth(ordSum) {
+async function loadValueTrendFilterOptions() {
   try {
-    const d = ordSum.by_delivery_month || [];
-    const labels = d.map(r => r.month);
-    const n = labels.length;
-    mkChart('deliveryMonthChart', {
-      type: 'bar',
-      data: { labels, datasets: [{ label: 'Pedidos', data: d.map(r => Number(r.total_orders)), backgroundColor: 'rgba(34,211,238,.7)', borderRadius: 3 }] },
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: tip() },
-        scales: { x: scX({ ticks: { ...scX().ticks, maxRotation: rot(n) } }), y: scY({ min: 0 }) }
-      }
-    });
-  } catch(e) { console.error('deliveryMonthChart:', e); }
+    const opts = await api('/brazil/customers/filter-options');
+    const mk = (vals, placeholder) =>
+      `<option value="">${placeholder}</option>` +
+      vals.map(v => `<option value="${v}">${v}</option>`).join('');
+    document.getElementById('valueTrendChannelSel').innerHTML = mk(opts.channels, 'Canal');
+    document.getElementById('valueTrendStateSel').innerHTML   = mk(opts.states,   'Estado');
+    document.getElementById('valueTrendCitySel').innerHTML    = mk(opts.cities,   'Cidade');
+  } catch(e) { console.error('loadValueTrendFilterOptions:', e); }
 }
 
+function _valueTrendRangeDays() {
+  const range = document.getElementById('kpiFromSel').value;
+  if (!range) return Infinity;
+  if (range === 'today') return 1;
+  if (range === 'week')  return 7;
+  if (range === 'month') return 31;
+  if (range === 'year' || range === 'lastyear') return 365;
+  if (range === 'custom') {
+    const from = document.getElementById('customFrom').value;
+    const to   = document.getElementById('customTo').value;
+    if (from && to) return Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  }
+  return Infinity;
+}
 
+function _syncValueTrendGranOptions() {
+  const sel     = document.getElementById('valueTrendGranSel');
+  const dayOpt  = sel.querySelector('option[value="day"]');
+  const tooLong = _valueTrendRangeDays() > 31;
+  dayOpt.disabled = tooLong;
+  if (tooLong && _valueTrendGranularity === 'day') {
+    _valueTrendGranularity = 'week';
+    sel.value = 'week';
+  }
+}
+
+function _loadValueTrend() {
+  _syncValueTrendGranOptions();
+  const dateParam = brazilDateParam();
+  const parts = [`granularity=${_valueTrendGranularity}`];
+  if (dateParam) parts.unshift(dateParam);
+  if (_valueTrendCnpjRoot) parts.push(`cnpj_root=${encodeURIComponent(_valueTrendCnpjRoot)}`);
+  if (_valueTrendChannel)  parts.push(`channel=${encodeURIComponent(_valueTrendChannel)}`);
+  if (_valueTrendState)    parts.push(`state=${encodeURIComponent(_valueTrendState)}`);
+  if (_valueTrendCity)     parts.push(`city=${encodeURIComponent(_valueTrendCity)}`);
+  api(`/brazil/order-items/value-trend?${parts.join('&')}`)
+    .then(data => _renderValueTrend(data))
+    .catch(e => console.error('valueTrendChart:', e));
+}
+
+function _renderValueTrend(data) {
+  const labels = data.labels || [];
+  const s = (data.series || [])[0];
+  if (!s) return;
+  const fmtVal = v => 'R$ ' + (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}));
+  mkChart('valueTrendChart', {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: s.name,
+      data: s.data,
+      borderColor: '#38bdf8',
+      backgroundColor: 'rgba(56,189,248,0.08)',
+      borderWidth: 2,
+      pointRadius: labels.length > 20 ? 0 : 3,
+      pointHoverRadius: 5,
+      fill: true,
+      tension: 0.3,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { ...tip(), callbacks: { label: ctx => ` ${s.name}: ${fmtVal(ctx.parsed.y)}` } },
+      },
+      scales: {
+        x: scX(),
+        y: scY({ min: 0, ticks: { color: tc, font: { size: 10, family: 'JetBrains Mono' }, callback: v => fmtVal(v) } }),
+      }
+    }
+  });
+}
+
+async function refreshValueTrend() {
+  _loadValueTrend();
+}
 
 async function refreshAlertResolveStatus(data) {
   try {
-    const STATUS_COLOR = {
-      'PROCESSED':   'rgba(52,211,153,.85)',
-      'REJECTED':    'rgba(248,113,113,.85)',
-      'INCONSISTENCY': 'rgba(251,191,36,.85)',
-    };
+    const PALETTE_ARS = [
+      'rgba(52,211,153,.85)',
+      'rgba(248,113,113,.85)',
+      'rgba(251,191,36,.85)',
+      'rgba(96,165,250,.85)',
+      'rgba(167,139,250,.85)',
+      'rgba(251,146,60,.85)',
+      'rgba(34,211,238,.85)',
+    ];
     const labels = data.map(r => r.status);
-    const colors = labels.map(s => STATUS_COLOR[s] || 'rgba(100,116,139,.7)');
+    const colors = labels.map((_, i) => PALETTE_ARS[i % PALETTE_ARS.length]);
     mkChart('alertResolveStatusChart', {
       type: 'doughnut',
       data: { labels, datasets: [{ data: data.map(r => Number(r.total)), backgroundColor: colors, borderWidth: 0, hoverOffset: 8 }] },
@@ -1478,28 +1915,32 @@ async function refreshTopProducts(itmSum) {
 // ── REFRESH ALL ────────────────────────────────────────
 async function refreshAll() {
   const btn = document.getElementById('refreshBtn');
+  const spinner = document.getElementById('dateLoadSpinner');
   btn.classList.add('spinning');
+  if (spinner) spinner.style.display = 'inline-block';
   const dateParam = brazilDateParam();
   const qs = dateParam ? `?${dateParam}` : '';
+  const ordSumParts = [dateParam, `group_by=${_topCustomersGroupBy}`].filter(Boolean);
+  const ordSumQs = `?${ordSumParts.join('&')}`;
   try {
-    const [ordSum, itmSum, errData, alertData] = await Promise.all([
-      api(`/brazil/orders/summary${qs}`),
+    const [ordSum, itmSum, alertData, alertPending] = await Promise.all([
+      api(`/brazil/orders/summary${ordSumQs}`),
       api(`/brazil/order-items/summary${qs}`),
-      api(`/brazil/order-items/errors-by-type${qs}`),
       api(`/brazil/alert-resolves/by-status${qs}`),
+      api(`/brazil/alert-resolves/pending-count`),
     ]);
     setApiOnline();
     await Promise.all([
-      refreshKPIs(ordSum, itmSum),
+      refreshKPIs(ordSum, itmSum, alertPending),
       refreshOrdersMonth(ordSum),
-      refreshErrorsByType(errData),
       refreshTopCustomers(ordSum),
+      refreshAlertDim(),
       refreshErrorRatio(itmSum),
-      refreshItemStatus(itmSum),
-      refreshDeliveryMonth(ordSum),
+      refreshValueTrend(),
       refreshAlertResolveStatus(alertData),
 
       refreshTopProducts(itmSum),
+      refreshCustDim(),
       loadCustomWidgets(),
     ]);
   } catch(e) {
@@ -1509,6 +1950,7 @@ async function refreshAll() {
   document.getElementById('lastUpdate').textContent =
     'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour12: false });
   btn.classList.remove('spinning');
+  if (spinner) spinner.style.display = 'none';
 }
 
 // ── CUSTOM WIDGETS ────────────────────────────────────
@@ -1686,6 +2128,8 @@ async function initDashboard() {
   document.getElementById('errorOverlay').classList.add('hidden');
   try {
     document.getElementById('loadingOverlay').classList.add('hidden');
+    loadValueTrendCustomers();
+    loadValueTrendFilterOptions();
     await refreshAll();
   } catch(e) {
     document.getElementById('loadingOverlay').classList.add('hidden');
@@ -2600,6 +3044,7 @@ document.getElementById('chatInput').addEventListener('input', function() {
     sidebar.classList.add('collapsed');
     openBtn.classList.add('visible');
     backdrop.classList.remove('visible');
+    localStorage.setItem('chatOpen', '0');
     setTimeout(resizeCharts, 270);
   };
 
@@ -2611,15 +3056,19 @@ document.getElementById('chatInput').addEventListener('input', function() {
     sidebar.classList.remove('collapsed');
     openBtn.classList.remove('visible');
     if (window.innerWidth <= 768) backdrop.classList.add('visible');
+    localStorage.setItem('chatOpen', '1');
     document.getElementById('chatInput').focus();
     setTimeout(resizeCharts, 270);
   };
 
-  // Mobile: começa fechado
-  if (window.innerWidth <= 768) {
+  // Restaura estado salvo; mobile sempre começa fechado
+  const _savedChatOpen = localStorage.getItem('chatOpen');
+  if (window.innerWidth <= 768 || _savedChatOpen === '0') {
     setChatW(0);
     sidebar.classList.add('collapsed');
     openBtn.classList.add('visible');
+  } else if (_savedChatOpen === null) {
+    // primeiro acesso: desktop abre, mobile já tratado acima
   }
 })();
 
@@ -2700,17 +3149,6 @@ document.addEventListener('click', e => {
 // ── START ─────────────────────────────────────────────
 initDashboard();
 
-// ── Tab switching ──────────────────────────────────────
-function switchTab(name) {
-  const panel = document.getElementById('tab-panel-' + name);
-  const btn   = document.getElementById('tab-btn-' + name);
-  if (!panel || !btn) return;
-  document.querySelectorAll('[id^="tab-panel-"]').forEach(el => el.style.display = 'none');
-  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-  panel.style.display = '';
-  btn.classList.add('active');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
 </script>
 
 <script>
@@ -2837,12 +3275,37 @@ function renderTaskCard(t, isNew) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-bottom:10px;">
       <div>
         <div style="font-size:9px;color:#475569;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;margin-bottom:2px;">FREQUÊNCIA</div>
-        <div style="font-size:12px;color:#94a3b8;">${freqLabel(t)}</div>
+        <div style="font-size:12px;color:#94a3b8;">${freqLabel(t)}${t.date_range ? `<span style="margin-left:6px;font-size:10px;color:#6366f1;font-family:'JetBrains Mono',monospace;">${t.date_range}</span>` : ''}</div>
       </div>
       ${t.frequency !== 'on_demand' ? `<div>
         <div style="font-size:9px;color:#475569;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;margin-bottom:2px;">PRÓXIMA EXEC.</div>
         <div style="font-size:12px;color:#38bdf8;">${t.next_run || '—'}</div>
       </div>` : '<div></div>'}
+      <div>
+        <div style="font-size:9px;color:#475569;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;margin-bottom:2px;">NOTIFICAÇÕES</div>
+        ${t.condition_sql
+          ? `<span title="Notificações sempre ativas em tarefas com condição de threshold" style="font-size:12px;color:#fbbf24;cursor:default;">🔔 sim</span>`
+          : `<button onclick="toggleNotifyTask('${t.id}', this)" title="${t.notify ? 'Desativar notificações' : 'Ativar notificações'}"
+              style="background:none;border:none;padding:0;cursor:pointer;font-size:12px;color:${t.notify ? '#fbbf24' : '#475569'};transition:color .15s;"
+              onmouseover="this.style.color='${t.notify ? '#f59e0b' : '#94a3b8'}'"
+              onmouseout="this.style.color='${t.notify ? '#fbbf24' : '#475569'}'">
+              ${t.notify ? '🔔 sim' : '🔕 não'}
+            </button>`
+        }
+      </div>
+      ${t.condition_sql ? `<div style="grid-column:1/-1;">
+        <div style="font-size:9px;color:#475569;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;margin-bottom:2px;">CONDIÇÃO</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-size:11px;color:#818cf8;font-family:'JetBrains Mono',monospace;">
+            ${t.condition_operator === 'is_empty' ? 'executa se sem registros' :
+              t.condition_operator === 'is_not_empty' ? 'executa se houver registros' :
+              `executa se valor ${t.condition_operator} ${t.condition_threshold}`}
+          </div>
+          <span style="font-size:10px;font-family:'JetBrains Mono',monospace;padding:1px 6px;border-radius:4px;${t.condition_state ? 'background:#3f1515;color:#f87171;' : 'background:#1e293b;color:#475569;'}">
+            ${t.condition_state ? '● ativa' : '○ aguardando'}
+          </span>
+        </div>
+      </div>` : ''}
       ${t.email ? `<div style="grid-column:1/-1;">
         <div style="font-size:9px;color:#475569;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;margin-bottom:2px;">EMAIL</div>
         <div style="font-size:12px;color:#94a3b8;word-break:break-all;">${t.email}</div>
@@ -2919,6 +3382,17 @@ async function deleteTask(id) {
   if (!confirm(`Remover tarefa [${id}]?`)) return;
   await fetch(`/tasks/${id}?user_id=${_userId}`, { method: 'DELETE' });
   loadAgenda();
+}
+
+async function toggleNotifyTask(id, btn) {
+  btn.style.opacity = '0.4';
+  btn.style.pointerEvents = 'none';
+  try {
+    const res  = await fetch(`/tasks/${id}/toggle-notify?user_id=${_userId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) loadAgenda();
+    else { alert(data.message || 'Erro ao alterar notificações.'); btn.style.opacity = '1'; btn.style.pointerEvents = ''; }
+  } catch { btn.style.opacity = '1'; btn.style.pointerEvents = ''; }
 }
 
 async function togglePauseTask(id, btn) {
@@ -3531,7 +4005,7 @@ async function loadAlerts() {
         ? `<div style="font-size:10px;color:#64748b;margin-top:4px;font-family:'JetBrains Mono',monospace;">valor: ${Number(a.value).toFixed(2)} · threshold: ${Number(a.threshold).toFixed(2)}</div>`
         : '';
       const taskTag = a.task_id
-        ? `<span style="font-size:9px;background:#1e293b;color:#94a3b8;padding:1px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;">task ${a.task_id}</span>`
+        ? `<span style="font-size:9px;background:#1e293b;color:#94a3b8;padding:1px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;" title="${a.task_name || ''}">[${a.task_id}]</span>`
         : '';
       return `<div id="alert-${a.id}" style="padding:10px 12px;border-radius:6px;${bg}${border}transition:background .15s;position:relative;" onmouseover="this.style.background='#1a2030'" onmouseout="this.style.background='${unread ? '#1a0a0a' : '#0d1117'}'">
         <button onclick="deleteAlert('${a.id}')" title="Apagar" style="position:absolute;top:6px;right:6px;background:none;border:none;color:#334155;font-size:14px;cursor:pointer;line-height:1;padding:2px 4px;border-radius:4px;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#334155'">✕</button>

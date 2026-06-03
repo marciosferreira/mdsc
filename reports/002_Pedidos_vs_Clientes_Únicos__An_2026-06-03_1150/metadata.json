@@ -1,0 +1,14 @@
+{
+  "task_id": "002",
+  "task_name": "Pedidos vs Clientes Únicos (Ano Atual)",
+  "run_at": "2026-06-03T11:50:38.556386",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "every_5m",
+    "weekday": null,
+    "day": null,
+    "time": null
+  }
+}

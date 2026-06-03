@@ -112,6 +112,12 @@ def migrate_db():
     with get_db() as conn:
         for stmt in (
             "ALTER TABLE scheduled_tasks ADD COLUMN user_id TEXT",
+            "ALTER TABLE scheduled_tasks ADD COLUMN notify INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE scheduled_tasks ADD COLUMN date_range TEXT",
+            "ALTER TABLE scheduled_tasks ADD COLUMN condition_state INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE scheduled_tasks ADD COLUMN condition_sql TEXT",
+            "ALTER TABLE scheduled_tasks ADD COLUMN condition_operator TEXT",
+            "ALTER TABLE scheduled_tasks ADD COLUMN condition_threshold REAL",
             "ALTER TABLE threshold_alerts ADD COLUMN user_id TEXT",
             # dashboard_widgets pode não existir em bancos antigos
             """CREATE TABLE IF NOT EXISTS dashboard_widgets (

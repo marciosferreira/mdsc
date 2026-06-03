@@ -1,0 +1,1 @@
+Total de pedidos em 2026-06-02: 0

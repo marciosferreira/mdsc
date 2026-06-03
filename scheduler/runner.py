@@ -123,14 +123,14 @@ class TaskCodeError(Exception):
     """Erro de validação ou execução do task_code."""
 
 
-def run_task_code(code: str, from_date: str, to_date: str, session_id: str, user_id: str | None = None, is_test: bool = False):
+def run_task_code(code: str, from_date: str, to_date: str, session_id: str, user_id: str | None = None, is_test: bool = False, notify_enabled: bool = True, task_name: str = ""):
     """Compila e executa task_code.
 
     Retorna list[str] de tokens em modo normal.
     Retorna (list[str], TaskContext) em modo teste para inspeção de alertas capturados.
     Lança TaskCodeError com mensagem amigável em caso de falha.
     """
-    ctx = TaskContext(session_id, user_id=user_id, is_test=is_test)
+    ctx = TaskContext(session_id, user_id=user_id, is_test=is_test, notify_enabled=notify_enabled, task_name=task_name)
     g   = _build_globals(ctx, from_date, to_date)
 
     # 1a. Rejeita imports antes de compilar, exceto módulos já pré-injetados no namespace.
@@ -183,6 +183,11 @@ def run_task_code(code: str, from_date: str, to_date: str, session_id: str, user
         raise TaskCodeError(
             f"Erro durante a execução de run():\n{traceback.format_exc(limit=12)}"
         ) from e
+
+    # 4b. Auto-notificação: se notify estava habilitado e o código não chamou ctx.notify(),
+    # dispara automaticamente com o nome da tarefa — sem depender do LLM escrever ctx.notify().
+    if notify_enabled and not is_test and not ctx._notify_called:
+        ctx.notify(ctx._task_name or "Tarefa executada com sucesso")
 
     # 5. Coleta tokens — aceita str, list ou None (usa ctx.tokens())
     if isinstance(result, str):

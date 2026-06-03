@@ -2,7 +2,9 @@
 LangChain tools do scheduler — usam SQLite via db.get_db().
 """
 
+import logging
 import re as _re
+import traceback
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +12,8 @@ from langchain_core.tools import tool
 
 from db import get_db
 from .md_parser import calculate_next_run
+
+logger = logging.getLogger(__name__)
 
 _MIN_INTERVAL_MINUTES = 5
 
@@ -80,23 +84,25 @@ def _format_list(tasks: list[dict]) -> str:
             'error':   '❌ erro',
             'completed': '✔️ concluída',
         }.get(t.get('status', ''), t.get('status', ''))
+        notify_label = '🔔 sim' if t.get('notify') else '🔕 não'
         lines.append(f"**[{t['id']}]** {t.get('name', '?')}")
-        lines.append(f"  Frequência : {_freq_label(t)}")
+        lines.append(f"  Frequência  : {_freq_label(t)}")
         if t.get('frequency') != 'on_demand':
-            lines.append(f"  Próxima    : {t.get('next_run', 'N/A')}")
-        lines.append(f"  Status     : {status_label}")
+            lines.append(f"  Próxima     : {t.get('next_run', 'N/A')}")
+        lines.append(f"  Status      : {status_label}")
+        lines.append(f"  Notificações: {notify_label}")
         if t.get('email'):
-            lines.append(f"  Email      : {t['email']}")
-        lines.append(f"  Descrição  : {t.get('description', '')}")
+            lines.append(f"  Email       : {t['email']}")
+        lines.append(f"  Descrição   : {t.get('description', '')}")
         lines.append("")
     return '\n'.join(lines)
 
 
-def _push_artifacts(event_type: str, tokens: list[str], task_id: str) -> None:
+def _push_artifacts(event_type: str, tokens: list[str], task_id: str, session_id_override: str = "") -> None:
     """Empurra artefatos diretamente para o stream SSE do chat."""
     try:
         from agent_multi import _push_event, _current_session
-        session = _current_session.get()
+        session = session_id_override or _current_session.get()
         for token in tokens:
             _push_event(session, {"type": event_type, "token": token, "task_id": task_id})
     except Exception:
@@ -130,64 +136,187 @@ def schedule_task(
     name: str,
     description: str,
     frequency: str,
+    notify: bool = False,
     time: Optional[str] = None,
     instructions: Optional[str] = None,
     email: Optional[str] = None,
     weekday: Optional[str] = None,
     day: Optional[str] = None,
+    date_range: Optional[str] = None,
 ) -> str:
-    """Agenda uma tarefa recorrente ou pontual.
+    """Agenda uma tarefa recorrente de RELATÓRIO ou GRÁFICO — NÃO use para alertas/threshold.
+
+    Para alertas baseados em condição (ex: "me avise se X > N"), use `schedule_monitor`.
 
     Args:
         name: Nome curto da tarefa (ex: "Relatório Semanal de Produção").
-        description: Resumo legível do que a tarefa faz — aparece na listagem
-                     para o usuário. Ex: "Gera relatório semanal de OEE por
-                     linha toda segunda às 8h e envia por email."
-        frequency: Frequência de execução. Valores aceitos:
-                   "once" | "daily" | "weekly" | "monthly" |
-                   "every_Xm" (ex: "every_2m") | "every_Xh" | "every_Xd" |
-                   "on_demand" (sem agendamento — executa só quando o usuário clicar ▶ no painel)
-        time: Hora no formato "HH:MM" (ex: "08:00"). Se omitido, usa a hora
-              atual como ponto de partida. Ignorado se frequency="on_demand".
-        instructions: Passo a passo detalhado de execução, incluindo os
-                      trechos de código Python validados. Se fornecido, a
-                      tarefa fica ativa imediatamente. Se omitido, fica com
-                      status "pending_approval" até ser definido via
-                      set_task_instructions.
-        email: Endereço de email para envio do relatório (opcional).
-        weekday: Obrigatório se frequency="weekly".
-                 Valores: "monday" | "tuesday" | "wednesday" | "thursday" |
-                          "friday" | "saturday" | "sunday"
-        day: Obrigatório se frequency="monthly". Dia do mês (ex: "1", "15").
+        description: Resumo do que a tarefa faz.
+        frequency: "once" | "daily" | "weekly" | "monthly" | "every_Xm" | "every_Xh" | "every_Xd" | "on_demand"
+        date_range: Período de análise — use quando diferente da janela padrão da frequência.
+                    "ytd" (ano atual) | "mtd" (mês atual) | "today" | "last_7d" | "last_30d" | "last_90d"
+        notify: True para notificar no dashboard quando a tarefa executar.
+        time: Hora "HH:MM". Ignorado se frequency="on_demand".
+        instructions: Código Python validado. Se fornecido, ativa imediatamente.
+        email: Email para envio do relatório (opcional).
+        weekday: Dia da semana se frequency="weekly" (ex: "monday").
+        day: Dia do mês se frequency="monthly" (ex: "15").
     """
     err = _validate_frequency(frequency)
     if err:
         return err
 
-    task_id = _next_id()
-    user_id = _current_user_id()
-    next_run = calculate_next_run(frequency, time, weekday, day)
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    with get_db() as conn:
-        conn.execute(
-            """INSERT INTO scheduled_tasks
-               (id, name, description, instructions, frequency, time, weekday,
-                day, email, status, next_run, last_run, created_at, user_id)
-               VALUES (?,?,?,?,?,?,?,?,?,'draft',?,NULL,?,?)""",
-            (task_id, name, description, instructions, frequency, time,
-             weekday, day, email, next_run, now, user_id),
-        )
-        conn.commit()
+    try:
+        task_id = _next_id()
+        user_id = _current_user_id()
+        next_run = calculate_next_run(frequency, time, weekday, day)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO scheduled_tasks
+                   (id, name, description, instructions, frequency, time, weekday,
+                    day, email, notify, date_range, status, next_run, last_run, created_at, user_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,'draft',?,NULL,?,?)""",
+                (task_id, name, description, instructions, frequency, time,
+                 weekday, day, email, int(notify), date_range, next_run, now, user_id),
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.error("[schedule_task] Erro ao criar tarefa: %s\n%s", exc, traceback.format_exc())
+        return f"❌ Erro interno ao criar tarefa: {exc}"
 
     tasks = _all_tasks(user_id)
-    if frequency == 'on_demand':
-        schedule_info = "Execute quando quiser clicando em ▶ no painel de tarefas."
-    else:
-        schedule_info = f"Próxima execução agendada: {next_run}"
+    schedule_info = "Execute quando quiser clicando em ▶ no painel de tarefas." if frequency == 'on_demand' else f"Próxima execução agendada: {next_run}"
     return (
         f"Tarefa **[{task_id}]** criada (aguardando código). {schedule_info}\n\n"
         + _format_list(tasks)
         + "\nPara remover tarefa redundante: **delete task [ID]**"
+    )
+
+
+@tool
+def schedule_monitor(
+    name: str,
+    description: str,
+    frequency: str,
+    condition_sql: str,
+    condition_operator: str,
+    condition_threshold: Optional[float] = None,
+    date_range: Optional[str] = None,
+    time: Optional[str] = None,
+    weekday: Optional[str] = None,
+    day: Optional[str] = None,
+) -> str:
+    """Cria um monitor de threshold — executa e notifica SOMENTE quando a condição for atingida.
+
+    Use para pedidos como: "me alerte se X > N", "notifique se não houver Y",
+    "monitore Z e avise quando passar de N".
+
+    Notificações são sempre ativas (não precisam de notify=True — é automático).
+    O task_code deve apenas retornar o valor atual — sem lógica condicional.
+
+    Args:
+        name: Nome do monitor (ex: "Monitor de Pedidos").
+        description: O que monitora e qual a condição (ex: "Alerta se total de pedidos do dia >= 160").
+        frequency: Com que frequência verificar. Use "every_5m", "every_1h", "daily", etc.
+        condition_sql: Query SELECT que retorna um escalar ou linhas para avaliação.
+                       Para escalar: "SELECT COUNT(*) FROM purchase_order WHERE created_at::date = CURRENT_DATE"
+                       Para existência: "SELECT id FROM purchase_order WHERE status = 'PENDING' LIMIT 1"
+        condition_operator: Como comparar o resultado:
+                            ">"  — executa se valor > threshold
+                            ">=" — executa se valor >= threshold
+                            "<"  — executa se valor < threshold
+                            "<=" — executa se valor <= threshold
+                            "==" — executa se valor == threshold
+                            "!=" — executa se valor != threshold
+                            "is_empty"     — executa se a query não retornar linhas
+                            "is_not_empty" — executa se a query retornar ao menos 1 linha
+        condition_threshold: Valor numérico de referência. Obrigatório para operadores
+                             numéricos (>, >=, <, <=, ==, !=). Ignorado para is_empty/is_not_empty.
+        date_range: Período injetado como from_date/to_date no task_code.
+                    "today" (padrão para monitores) | "ytd" | "mtd" | "last_7d" | "last_30d"
+        time: Hora "HH:MM" (opcional).
+        weekday: Dia da semana se frequency="weekly".
+        day: Dia do mês se frequency="monthly".
+    """
+    err = _validate_frequency(frequency)
+    if err:
+        return err
+
+    if condition_operator not in (">", ">=", "<", "<=", "==", "!=", "is_empty", "is_not_empty"):
+        return f"❌ condition_operator inválido: '{condition_operator}'. Use: > >= < <= == != is_empty is_not_empty"
+
+    if condition_operator not in ("is_empty", "is_not_empty") and condition_threshold is None:
+        return f"❌ condition_threshold obrigatório para operador '{condition_operator}'."
+
+    # Valida condition_sql executando antes de salvar
+    try:
+        import os, psycopg2
+        _conn = psycopg2.connect(
+            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
+            port=int(os.getenv("POSH_DB_PORT", "5432")),
+            user=os.getenv("POSH_DB_USER", "postgres"),
+            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
+            dbname=os.getenv("POSH_DB_NAME", "postgres"),
+            options="-c search_path=brazil -c default_transaction_read_only=on",
+        )
+        with _conn.cursor() as cur:
+            cur.execute(condition_sql)
+            cur.fetchone()
+        _conn.close()
+    except Exception as exc:
+        return (
+            f"❌ **condition_sql inválido:** a query falhou com o erro abaixo.\n"
+            f"Corrija antes de criar o monitor.\n\n"
+            f"Erro: `{exc}`\n\n"
+            f"Dica: tabelas disponíveis são `purchase_order`, `order_item`, `customer`, `product`."
+        )
+
+    effective_date_range = date_range or "today"
+
+    # task_code padrão: executa condition_sql e retorna o valor atual como string.
+    # Suficiente para qualquer monitor simples — pode ser substituído depois via save_task_code.
+    _sql_escaped = condition_sql.replace('"""', "'''")
+    default_code = (
+        "def run(from_date, to_date, ctx):\n"
+        f'    rows = ctx.sql("""\n        {_sql_escaped}\n    """)\n'
+        "    if not rows:\n"
+        "        return 'Sem dados'\n"
+        "    val = list(rows[0].values())[0]\n"
+        f"    return '{name}: ' + str(val)\n"
+    )
+
+    try:
+        task_id = _next_id()
+        user_id = _current_user_id()
+        next_run = calculate_next_run(frequency, time, weekday, day)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO scheduled_tasks
+                   (id, name, description, task_code, frequency, time, weekday, day,
+                    notify, date_range, condition_sql, condition_operator, condition_threshold,
+                    status, next_run, last_run, created_at, user_id)
+                   VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?,'active',?,NULL,?,?)""",
+                (task_id, name, description, default_code, frequency, time, weekday, day,
+                 effective_date_range, condition_sql, condition_operator, condition_threshold,
+                 next_run, now, user_id),
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.error("[schedule_monitor] Erro ao criar monitor: %s\n%s", exc, traceback.format_exc())
+        return f"❌ Erro interno ao criar monitor: {exc}"
+
+    tasks = _all_tasks(user_id)
+    op_desc = (
+        f"executa se sem resultados" if condition_operator == "is_empty" else
+        f"executa se houver resultados" if condition_operator == "is_not_empty" else
+        f"executa se valor {condition_operator} {condition_threshold}"
+    )
+    return (
+        f"Monitor **[{task_id}]** criado e ativo. Condição: {op_desc}. Próxima verificação: {next_run}\n\n"
+        f"O monitor já tem task_code padrão (retorna valor atual). "
+        f"Para personalizar o relatório gerado quando a condição for atingida, use save_task_code.\n\n"
+        + _format_list(tasks)
     )
 
 
@@ -313,13 +442,21 @@ def update_scheduled_task(
     frequency: Optional[str] = None,
     time: Optional[str] = None,
     email: Optional[str] = None,
+    notify: Optional[bool] = None,
     weekday: Optional[str] = None,
     day: Optional[str] = None,
+    condition_sql: Optional[str] = None,
+    condition_operator: Optional[str] = None,
+    condition_threshold: Optional[float] = None,
+    date_range: Optional[str] = None,
 ) -> str:
     """Edita campos de uma tarefa existente. Apenas os campos fornecidos são alterados.
 
     Se frequency, time, weekday ou day forem alterados, next_run é recalculado.
     Para editar as instruções de execução use set_task_instructions.
+
+    Se a tarefa deveria ter condition_sql mas não tem (ex: foi criada sem threshold),
+    use este tool para adicionar condition_sql + condition_operator + notify=True agora.
 
     Args:
         task_id: ID da tarefa (ex: "001").
@@ -328,8 +465,12 @@ def update_scheduled_task(
         frequency: Nova frequência.
         time: Novo horário "HH:MM".
         email: Novo email (string vazia para remover).
+        notify: True para habilitar notificações, False para desabilitar.
         weekday: Novo dia da semana (se frequency="weekly").
         day: Novo dia do mês (se frequency="monthly").
+        condition_sql: Nova query de condição (string vazia para remover).
+        condition_operator: Novo operador (">" | "<" | ">=" | "<=" | "==" | "!=" | "is_empty" | "is_not_empty").
+        condition_threshold: Novo threshold numérico.
     """
     with get_db() as conn:
         row = conn.execute(
@@ -347,6 +488,8 @@ def update_scheduled_task(
             updates['description'] = description
         if email is not None:
             updates['email'] = email or None
+        if notify is not None:
+            updates['notify'] = int(notify)
         if weekday is not None:
             updates['weekday'] = weekday
         if day is not None:
@@ -358,6 +501,14 @@ def update_scheduled_task(
             updates['frequency'] = frequency
         if time is not None:
             updates['time'] = time
+        if condition_sql is not None:
+            updates['condition_sql'] = condition_sql or None
+        if condition_operator is not None:
+            updates['condition_operator'] = condition_operator or None
+        if condition_threshold is not None:
+            updates['condition_threshold'] = condition_threshold
+        if date_range is not None:
+            updates['date_range'] = date_range or None
 
         sched_changed = any(p is not None for p in (frequency, time, weekday, day))
         if sched_changed:
@@ -406,7 +557,7 @@ def get_task_code(task_id: str) -> str:
 
 
 @tool
-def test_task_code(task_id: str, code: str, from_date: str = "", to_date: str = "") -> str:
+def test_task_code(task_id: str, code: str, from_date: str = "", to_date: str = "", session_id_override: str = "") -> str:
     """Compila e executa um trecho de task_code para validação antes de salvar.
 
     O código deve definir `def run(from_date, to_date, ctx)` e retornar token(s).
@@ -417,6 +568,9 @@ def test_task_code(task_id: str, code: str, from_date: str = "", to_date: str = 
         code: Código Python completo a testar.
         from_date: Data inicial no formato YYYY-MM-DD (padrão: 7 dias atrás).
         to_date: Data final no formato YYYY-MM-DD (padrão: hoje).
+        session_id_override: Session ID explícito para envio do preview ao chat.
+                             Quando fornecido, tem prioridade sobre _current_session.
+                             Use quando a tool é chamada de dentro de um grafo agendado.
     """
     from .runner import run_task_code, default_test_range, TaskCodeError
     from datetime import datetime
@@ -427,7 +581,7 @@ def test_task_code(task_id: str, code: str, from_date: str = "", to_date: str = 
     session_id = f"test_{task_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     try:
         tokens, ctx = run_task_code(code, from_date, to_date, session_id, user_id=_current_user_id(), is_test=True)
-        _push_artifacts("artifact_preview", tokens, task_id)
+        _push_artifacts("artifact_preview", tokens, task_id, session_id_override=session_id_override)
 
         alert_lines = []
         for a in ctx.test_alerts():
@@ -461,6 +615,7 @@ def save_task_code(task_id: str, code: str) -> str:
     Após salvar, a tarefa executa o código diretamente (modo determinístico),
     sem passar pelo LLM. Use test_task_code antes de salvar.
 
+
     Args:
         task_id: ID da tarefa (ex: "001").
         code: Código Python completo com `def run(from_date, to_date, ctx)`.
@@ -468,30 +623,55 @@ def save_task_code(task_id: str, code: str) -> str:
     from datetime import datetime
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT name, task_code FROM scheduled_tasks WHERE id = ?", (task_id,)
-        ).fetchone()
-        if not row:
-            return f"Tarefa '{task_id}' não encontrada."
-
-        # Arquiva versão anterior se existir
-        if row['task_code']:
-            ver_row = conn.execute(
-                "SELECT COALESCE(MAX(version), 0) + 1 AS nxt FROM task_code_versions WHERE task_id = ?",
-                (task_id,)
+    _notify_warning = ""
+    row = None
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT name, task_code, condition_sql FROM scheduled_tasks WHERE id = ?", (task_id,)
             ).fetchone()
-            version = ver_row['nxt']
-            conn.execute(
-                "INSERT INTO task_code_versions (task_id, version, code, created_at) VALUES (?, ?, ?, ?)",
-                (task_id, version, row['task_code'], now),
-            )
+            if not row:
+                return f"Tarefa '{task_id}' não encontrada."
 
-        conn.execute(
-            "UPDATE scheduled_tasks SET task_code = ?, status = 'active' WHERE id = ?",
-            (code, task_id),
-        )
-        conn.commit()
+            # Bloqueia ctx.notify() no código de tarefas com condition_sql
+            if "ctx.notify" in code and row.get("condition_sql"):
+                return (
+                    "❌ **Código recusado:** esta tarefa tem `condition_sql` definido — "
+                    "a condição e a notificação são gerenciadas automaticamente pelo daemon.\n\n"
+                    "Remova qualquer chamada a `ctx.notify()` do código. "
+                    "O task_code deve apenas coletar dados e gerar o relatório/gráfico."
+                )
+
+            # Prepara aviso se ctx.notify() está no código sem condition_sql (salva mesmo assim)
+            if "ctx.notify" in code and not row.get("condition_sql"):
+                _notify_warning = (
+                    "\n\n⚠️ **Atenção:** o código usa `ctx.notify()`, mas a tarefa não tem "
+                    "`condition_sql` definido. Para alertas baseados em threshold, use "
+                    "`update_scheduled_task` para definir `condition_sql` + `condition_operator` "
+                    "+ `condition_threshold` e remova `ctx.notify()` do código."
+                )
+
+            # Arquiva versão anterior se existir
+            if row['task_code']:
+                ver_row = conn.execute(
+                    "SELECT COALESCE(MAX(version), 0) + 1 AS nxt FROM task_code_versions WHERE task_id = ?",
+                    (task_id,)
+                ).fetchone()
+                version = ver_row['nxt']
+                conn.execute(
+                    "INSERT INTO task_code_versions (task_id, version, code, created_at) VALUES (?, ?, ?, ?)",
+                    (task_id, version, row['task_code'], now),
+                )
+
+            conn.execute(
+                "UPDATE scheduled_tasks SET task_code = ?, status = 'active' WHERE id = ?",
+                (code, task_id),
+            )
+            conn.commit()
+
+    except Exception as exc:
+        logger.error("[save_task_code] Erro ao salvar task %s: %s\n%s", task_id, exc, traceback.format_exc())
+        return f"❌ Erro interno ao salvar task_code [{task_id}]: {exc}"
 
     # Promove artifacts do teste para a sessão real (aparecem no painel de artifacts)
     try:
@@ -507,6 +687,7 @@ def save_task_code(task_id: str, code: str) -> str:
         f"✅ **task_code salvo** na tarefa **[{task_id}]** ({row['name']}).\n"
         "A próxima execução usará este código diretamente (modo determinístico).\n"
         "Use `get_task_code_versions` para ver o histórico ou `restore_task_code_version` para reverter."
+        + _notify_warning
     )
 
 

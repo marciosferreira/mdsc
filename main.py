@@ -493,14 +493,16 @@ def get_tasks(user_id: str = Query(default=None)):
     with get_db() as conn:
         if user_id:
             tasks = conn.execute(
-                "SELECT id, name, description, frequency, time, weekday, day, "
-                "email, status, next_run, last_run, created_at, retry_count, max_retries "
+                "SELECT id, name, description, frequency, time, weekday, day, email, notify, "
+                "date_range, condition_sql, condition_operator, condition_threshold, condition_state, "
+                "status, next_run, last_run, created_at, retry_count, max_retries "
                 "FROM scheduled_tasks WHERE user_id=? ORDER BY id DESC", (user_id,)
             ).fetchall()
         else:
             tasks = conn.execute(
-                "SELECT id, name, description, frequency, time, weekday, day, "
-                "email, status, next_run, last_run, created_at, retry_count, max_retries "
+                "SELECT id, name, description, frequency, time, weekday, day, email, notify, "
+                "date_range, condition_sql, condition_operator, condition_threshold, condition_state, "
+                "status, next_run, last_run, created_at, retry_count, max_retries "
                 "FROM scheduled_tasks ORDER BY id DESC"
             ).fetchall()
         task_ids = tuple(dict(t)["id"] for t in tasks)
@@ -597,7 +599,7 @@ async def run_task_now(task_id: str, user_id: str = Query(default=None)):
     task = dict(row)
     if task["status"] != "active":
         return JSONResponse(status_code=409, content={"error": True, "message": f"Task deve estar ativa para execução manual (status atual: {task['status']})."})
-    asyncio.create_task(asyncio.to_thread(_execute_task, task))
+    asyncio.create_task(asyncio.to_thread(_execute_task, task, True))
     return {"ok": True, "message": "Execução iniciada."}
 
 
@@ -618,6 +620,24 @@ def toggle_pause_task(task_id: str, user_id: str = Query(default=None)):
         conn.execute("UPDATE scheduled_tasks SET status=? WHERE id=?", (new_status, task_id))
         conn.commit()
     return {"ok": True, "task_id": task_id, "status": new_status}
+
+
+@app.post("/tasks/{task_id}/toggle-notify")
+def toggle_notify_task(task_id: str, user_id: str = Query(default=None)):
+    """Alterna notificações de uma tarefa (notify 0↔1). Bloqueado para tarefas com condition_sql."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, notify, condition_sql FROM scheduled_tasks WHERE id=?" + (" AND user_id=?" if user_id else ""),
+            (task_id, user_id) if user_id else (task_id,),
+        ).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": True, "message": f"Task {task_id} não encontrada."})
+        if row["condition_sql"]:
+            return JSONResponse(status_code=409, content={"error": True, "message": "Notificações não podem ser desativadas em tarefas com condição de threshold."})
+        new_notify = 0 if row["notify"] else 1
+        conn.execute("UPDATE scheduled_tasks SET notify=? WHERE id=?", (new_notify, task_id))
+        conn.commit()
+    return {"ok": True, "task_id": task_id, "notify": bool(new_notify)}
 
 
 @app.delete("/tasks/{task_id}")
@@ -773,7 +793,18 @@ def get_reports_for_task(task_id: str):
 @app.get("/alerts")
 def get_alerts(all: bool = False, user_id: str = Query(default=None)):
     """Retorna alertas de threshold. Por padrão apenas não lidos; ?all=true retorna os últimos 100."""
-    return cs.get_alerts(unread_only=not all, user_id=user_id)
+    alerts = cs.get_alerts(unread_only=not all, user_id=user_id)
+    task_ids = list({a["task_id"] for a in alerts if a.get("task_id")})
+    if task_ids:
+        with get_db() as conn:
+            rows = conn.execute(
+                f"SELECT id, name FROM scheduled_tasks WHERE id IN ({','.join('?'*len(task_ids))})",
+                task_ids,
+            ).fetchall()
+        names = {r["id"]: r["name"] for r in rows}
+        for a in alerts:
+            a["task_name"] = names.get(a.get("task_id") or "")
+    return alerts
 
 
 @app.post("/alerts/{alert_id}/read")

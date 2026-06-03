@@ -1,0 +1,14 @@
+{
+  "task_id": "003",
+  "task_name": "Gráfico de Pedidos vs Clientes Únicos",
+  "run_at": "2026-06-03T12:00:52.703638",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "every_5m",
+    "weekday": null,
+    "day": null,
+    "time": null
+  }
+}

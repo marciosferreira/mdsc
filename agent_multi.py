@@ -35,6 +35,7 @@ from typing import Optional
 
 import requests as http_requests
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -44,6 +45,7 @@ from typing_extensions import Annotated, TypedDict
 import chart_store
 from scheduler.tools import (
     schedule_task,
+    schedule_monitor,
     get_task_code,
     test_task_code,
     save_task_code,
@@ -170,7 +172,7 @@ async def ns_cleanup_loop():
             logger.info("Namespaces expirados removidos: %s", expired)
 
 
-_MAX_RESULT_ROWS = 15  # acima disso, resultado de DataFrame é descrito, não exibido completo
+_MAX_RESULT_ROWS = 200  # acima disso, resultado de DataFrame é descrito, não exibido completo
 
 
 def _df_describe(df: pd.DataFrame, nome: str = "result") -> str:
@@ -282,6 +284,7 @@ _TOOL_LABELS: dict[str, str] = {
     "criar_tarefa_agendada":    "🗓️ Criando tarefa agendada",
     "editar_tarefa_agendada":   "✏️ Editando tarefa agendada",
     "schedule_task":            "🗓️ Agendando tarefa",
+    "schedule_monitor":         "🔔 Criando monitor de threshold",
     "set_task_instructions":    "📝 Salvando instruções da tarefa",
     "get_task_instructions":    "🔍 Lendo instruções da tarefa",
     "list_scheduled_tasks":     "📋 Listando tarefas agendadas",
@@ -506,16 +509,15 @@ _RAG_DIR = Path(__file__).parent / "rag"
 
 @tool
 def rag_dominio() -> str:
-    """Retorna informações sobre o domínio industrial E o mapeamento ATUAL linha→modelo
-    lido ao vivo do banco de dados.
+    """Retorna informações sobre o domínio de negócio: o que é o sistema Brazil Purchase Orders,
+    o fluxo de um pedido (importação → validação → aprovação/rejeição), os status possíveis
+    (APPROVED, INCONSISTENCY, PENDING, REJECTED), os campos de data (created_at como principal, issue_date como data do cliente),
+    as entidades principais (customer, product, order_item), KPIs de negócio (taxa de aprovação,
+    volume de pedidos, valor total), canais de venda e regiões.
 
-    CHAME ESTA TOOL SEMPRE QUE o usuário mencionar um modelo pelo nome
-    (ex: "PhoneX Pro", "PhoneX Lite", "PhoneX Ultra", "PhoneX Mini") para descobrir
-    qual line= usar nos filtros da API. O mapeamento pode mudar — não assuma valores fixos.
-
-    Também use para: definição dos KPIs (OEE, FPY, downtime, taxa de defeito),
-    o que cada painel do dashboard exibe, como interpretar os indicadores,
-    turnos (A/B/C), granularidade dos dados (diária vs horária).
+    Use quando o usuário perguntar: o que este sistema faz, o que significa um status,
+    como interpretar dados de pedidos, qual coluna de data usar, como os clientes são organizados,
+    o que são canais/regionais, como calcular taxa de aprovação, etc.
     """
     return (_RAG_DIR / "dominio.md").read_text(encoding="utf-8")
 
@@ -551,9 +553,9 @@ def rag_arquitetura() -> str:
 @tool
 def rag_dados() -> str:
     """Retorna a referência técnica de dados: endpoints da API REST com seus filtros
-    (from, to, shift, line), estrutura dos payloads e schema completo do banco SQLite
-    (tabelas production, defects, metrics, hourly_production, lines_status, alerts, kpis)
-    com colunas, tipos e descrições.
+    (from, to, status, customer_id, product_group), estrutura dos payloads e schema completo
+    do banco PostgreSQL (tabelas purchase_order, order_item, product, customer, error_type,
+    alert_resolve, file_import, city) com colunas, tipos e descrições.
 
     Use quando o usuário perguntar: quais endpoints existem, quais filtros a API aceita,
     quais colunas tem a tabela de produção, qual o schema do banco, como cruzar tabelas,
@@ -575,7 +577,7 @@ def gerar_pdf(titulo: str, conteudo: str) -> str:
          automaticamente convertido em link de download.
 
     REGRA DE CONTEÚDO — o argumento `conteudo` deve conter APENAS:
-      - Títulos de seções (ex: "## Produção por Linha")
+      - Títulos de seções (ex: "## Pedidos por Status")
       - Tokens de gráficos gerados: [chart:uuid]
       - Tabelas de dados em markdown
       - Conclusões analíticas objetivas (números, tendências, comparações)
@@ -588,12 +590,12 @@ def gerar_pdf(titulo: str, conteudo: str) -> str:
       - Qualquer frase que fale sobre o próprio relatório em vez de conter dados do relatório
 
     Exemplos CORRETOS de conteudo:
-      "## Produção Semanal\\n[chart:abc-123]\\n\\nLinha 1 liderou com 1.240 un. (+8% vs meta).\\nFPY médio: 96,2%. Pior dia: segunda (91%)."
+      "## Pedidos por Status\\n[chart:abc-123]\\n\\nAPPROVED liderou com 1.240 pedidos (82%).\\nINCONSISTENCY: 198 (13%). Taxa de aprovação: 82,3%."
 
     Exemplos ERRADOS (nunca incluir):
       INÍCIO: "Aqui está a análise de produção que você pediu.\\n## Produção Semanal\\n..."
-      FIM: "...FPY médio: 96,2%.\\n\\nGerado a partir dos dados do sistema MFG."
-      FIM: "...FPY médio: 96,2%.\\n\\nEspero que o relatório seja útil!"
+      FIM: "...Taxa de aprovação: 82,3%.\\n\\nGerado a partir dos dados do sistema."
+      FIM: "...Taxa de aprovação: 82,3%.\\n\\nEspero que o relatório seja útil!"
 
     Args:
         titulo: Título do relatório (ex: "Análise de Produção — Maio 2026").
@@ -1104,16 +1106,17 @@ def _build_sub_agent(llm):
 
     SUB_SYSTEM_PROMPT = (
         f"Data de hoje: {hoje}\n\n"
-        "Você é um sub-agente especializado em análise de dados industriais.\n\n"
-        "## Fluxo obrigatório\n"
-        "Para QUALQUER pedido de análise, siga estes passos nesta ordem:\n"
-        "  1. Chame read_skill() para obter as instruções da skill correta.\n"
-        "  2a. Se a skill usa chamar_api: chame calcular_periodo() e depois chamar_api().\n"
-        "  2b. Se a skill usa executar_sql (skill analise_sql_livre): chame executar_sql() diretamente "
-        "com a query SQL adequada — NÃO chame calcular_periodo() nem chamar_api() neste caso.\n"
+        "Você é um sub-agente especializado em análise de pedidos de compra (Brazil Purchase Orders).\n\n"
+        "## Fluxo OBRIGATÓRIO — sem exceção\n"
+        "Para QUALQUER pedido de análise, siga exatamente estes passos:\n\n"
+        "  1. ⛔ PRIMEIRO E OBRIGATÓRIO: chame read_skill('analise_sql_livre.md').\n"
+        "     NUNCA chame executar_sql, chamar_api ou analisar_dataframe antes de ler a skill.\n"
+        "     Motivo: a skill é a única fonte dos nomes reais de tabelas e colunas do banco.\n"
+        "     Sem lê-la, você inventará nomes que não existem e o SQL vai falhar.\n\n"
+        "  2. Após ler a skill, siga o fluxo que ela define (executar_sql ou chamar_api).\n\n"
         "  3. Chame analisar_dataframe() para processar os dados e obter o resultado.\n"
         "     - Você pode chamar analisar_dataframe() várias vezes para análises em etapas.\n"
-        "     - Variáveis criadas em chamadas anteriores de analisar_dataframe continuam disponíveis.\n"
+        "     - Variáveis criadas em chamadas anteriores continuam disponíveis.\n\n"
         "  4. Só então redija a resposta final.\n\n"
         "## Modificação de gráfico ou análise já feita\n"
         "Se o usuário pedir para alterar algo em um gráfico ou análise anterior "
@@ -1121,14 +1124,12 @@ def _build_sub_agent(llm):
         "repita o fluxo completo (passos 1-3) usando os MESMOS parâmetros da análise anterior "
         "— você os encontra no histórico da conversa — e aplique a modificação solicitada no script "
         "passado para analisar_dataframe. NUNCA responda que não é possível modificar um gráfico.\n\n"
-        "## Quando usar analise_sql_livre\n"
-        "Se o pedido do usuário não puder ser atendido por nenhuma skill existente "
-        "(cruzamentos entre tabelas, rankings, análises customizadas), use read_skill('analise_sql_livre.md') "
-        "e depois executar_sql() para construir a query SQL adequada.\n\n"
         "## Tipos de dados — invariantes globais\n"
-        "- A coluna `date` em TODOS os DataFrames é sempre string (TEXT/object). "
-        "Antes de qualquer operação com datas (strftime, sort por data, comparação, resample, etc.), "
-        "converta obrigatoriamente: `df['date'] = pd.to_datetime(df['date'])`.\n\n"
+        "- Colunas de data retornadas pelo banco são strings (TEXT/object). "
+        "Antes de qualquer operação com datas (strftime, sort, comparação, resample), "
+        "converta: `df['created_at'] = pd.to_datetime(df['created_at'])` (ou a coluna correspondente).\n"
+        "- Não existe coluna genérica `date` neste sistema. Use sempre o nome real da coluna "
+        "(ex: `created_at`, `issue_date`, `delivery_month`).\n\n"
         "## Regras\n"
         "- NUNCA invente dados — use apenas resultados de analisar_dataframe.\n"
         "- Se analisar_dataframe retornar erro, corrija e chame novamente.\n"
@@ -1161,25 +1162,25 @@ def _build_sub_agent(llm):
         "(totais, máximos, mínimos, médias, desvios relevantes, top-N). "
         "Exemplo:\n"
         "  **Dados do gráfico:**\n"
-        "  - Total do período: 1.247 peças\n"
-        "  - Linha com maior produção: Linha B (420 pç)\n"
-        "  - Pico: 15/05 (78 pç) | Menor: 03/05 (12 pç)\n"
+        "  - Total do período: 1.247 pedidos\n"
+        "  - Status mais frequente: APPROVED (82%)\n"
+        "  - Pico: 15/05 (78 pedidos) | Menor: 03/05 (12 pedidos)\n"
         "  Isso permite ao orquestrador responder follow-ups sem reanalisar os dados.\n"
         "- RESUMO DO RELATÓRIO PDF: sempre que chamar gerar_pdf(), inclua na resposta final "
         "um bloco **Dados do relatório:** com as seções geradas e os valores principais "
         "(você já tem esses dados — usou-os para compor o conteudo do PDF). Exemplo:\n"
         "  **Dados do relatório:**\n"
-        "  - Seções: Produção por linha, FPY semanal, Top defeitos\n"
+        "  - Seções: Pedidos por status, Top clientes, Erros por tipo\n"
         "  - Período: 01/05 a 20/05/2026\n"
-        "  - Total produzido: 1.247 pç | FPY médio: 96,2% | Principal defeito: Scratch (38%)\n"
+        "  - Total de pedidos: 1.247 | Aprovados: 82,3% | Principal erro: PART_NUMBER_NOT_IDENTIFIED (38%)\n"
         "  Isso permite ao orquestrador responder follow-ups sobre o PDF sem reabri-lo.\n"
         "- RESUMO DA PLANILHA EXCEL: sempre que chamar gerar_excel(), inclua na resposta final "
         "um bloco **Dados da planilha:** com o shape, as colunas e os valores agregados principais "
         "(você viu esses dados no retorno de analisar_dataframe). Exemplo:\n"
         "  **Dados da planilha:**\n"
-        "  - Abas: Produção (180 linhas × 6 colunas), FPY (180 × 4)\n"
-        "  - Colunas principais: data, linha, turno, producao, meta, fpy\n"
-        "  - Total produzido: 1.247 pç | Média diária: 41,6 pç | FPY médio: 96,2%\n"
+        "  - Abas: Pedidos (180 linhas × 6 colunas), Itens (540 × 5)\n"
+        "  - Colunas principais: created_at, customer_name, status, order_number, quantity\n"
+        "  - Total de pedidos: 180 | Aprovados: 148 (82%) | Valor total: R$ 2,4M\n"
         "  Isso permite ao orquestrador responder follow-ups sobre a planilha sem reprocessar os dados.\n\n"
         "## Modo agendamento [PARA_AGENDAMENTO]\n"
         "Se a mensagem contiver [PARA_AGENDAMENTO], após a análise normal escreva um bloco\n"
@@ -1294,8 +1295,9 @@ def consultar_analista(detalhes: str, from_date: str, to_date: str, tipo: str = 
     IMPORTANTE: Sempre chame calcular_periodo() antes para obter from_date e to_date.
 
     Args:
-        detalhes: O que o usuário quer analisar (ex: "produção diária",
-                  "produção vs meta", "defeitos por linha").
+        detalhes: O que o usuário quer analisar (ex: "pedidos este mês",
+                  "pedidos por status", "clientes com mais pedidos",
+                  "itens com inconsistência", "volume por produto").
         from_date: Data inicial no formato YYYY-MM-DD. Obter via calcular_periodo().
         to_date: Data final no formato YYYY-MM-DD. Obter via calcular_periodo().
         tipo: Tipo de saída desejado. Use EXATAMENTE um dos valores abaixo:
@@ -1339,10 +1341,16 @@ def consultar_analista(detalhes: str, from_date: str, to_date: str, tipo: str = 
             + "\n--- FIM DAS REGRAS DO SANDBOX ---"
         )
     msg_content = f"{flags}\n{detalhes}"
-    resultado = _sub_agent_graph.invoke(
-        {"messages": [HumanMessage(content=msg_content)]},
-        config={"configurable": {"thread_id": _current_session.get()}, "recursion_limit": 30},
-    )
+    try:
+        resultado = _sub_agent_graph.invoke(
+            {"messages": [HumanMessage(content=msg_content)]},
+            config={"configurable": {"thread_id": _current_session.get()}, "recursion_limit": 30},
+        )
+    except Exception as e:
+        return (
+            f"O sub-agente analista encontrou um erro interno ({type(e).__name__}) e não pôde "
+            "completar a análise. Informe o usuário e sugira reformular a pergunta."
+        )
     content = resultado["messages"][-1].content
     if not content or not content.strip():
         return (
@@ -1443,7 +1451,7 @@ def _build_scheduler_agent(llm):
         "tarefa para modo B, use test_task_code para validar o código e save_task_code para salvar.\n\n"
         "## Campos importantes\n"
         "- description: texto curto e legível que descreve o que a tarefa faz. "
-        "Aparece na listagem para o usuário. Ex: 'Relatório semanal de OEE toda segunda às 8h.'\n"
+        "Aparece na listagem para o usuário. Ex: 'Relatório semanal de pedidos toda segunda às 8h.'\n"
         "- instructions: passo a passo detalhado com o código Python validado. "
         "Não aparece na listagem. Usado no modo LLM.\n"
         "- task_code: código Python com `def run(from_date, to_date, ctx)`. "
@@ -1474,20 +1482,20 @@ def _build_scheduler_agent(llm):
         "    dados = ctx.api(f'/brazil/purchase-orders?from={from_d}&to={to_d}')\n"
         "    df = pd.DataFrame(dados)\n"
         "    fig, ax = plt.subplots(figsize=(10, 4))\n"
-        "    ax.bar(df['issue_date'], df['order_number'], color='steelblue')\n"
+        "    ax.bar(df['created_at'], df['order_number'], color='steelblue')\n"
         "    ax.set_title('Pedidos por Data')\n"
         "    token_chart = ctx.save_chart(fig)\n"
         "    # NÃO use to_markdown() — causa erro de layout no PDF\n"
         "    # Use apenas bullet points com valores agregados\n"
-        "    total = df['produced'].sum()\n"
-        "    media = df['produced'].mean()\n"
+        "    total = len(df)\n"
+        "    aprovados = (df['status'] == 'APPROVED').sum()\n"
         "    conteudo = (\n"
-        "        f'## Produção Diária\\n\\n{token_chart}\\n\\n'\n"
+        "        f'## Pedidos por Data\\n\\n{token_chart}\\n\\n'\n"
         "        f'- Período: {from_d} a {to_d}\\n'\n"
-        "        f'- Total produzido: {total:.0f} unidades\\n'\n"
-        "        f'- Média diária: {media:.1f} unidades\\n'\n"
+        "        f'- Total de pedidos: {total}\\n'\n"
+        "        f'- Aprovados: {aprovados} ({aprovados/total*100:.1f}%)\\n'\n"
         "    )\n"
-        "    return ctx.generate_pdf('Relatório de Produção', conteudo)\n"
+        "    return ctx.generate_pdf('Relatório de Pedidos', conteudo)\n"
         "```\n\n"
         "## Edição de task_code\n"
         "Quando o usuário pedir para alterar qualquer aspecto do relatório (cor, escala, colunas):\n"
@@ -1498,12 +1506,12 @@ def _build_scheduler_agent(llm):
         "## Frequências aceitas\n"
         "once | daily | weekly (requer weekday) | monthly (requer day) |\n"
         "every_Xm (ex: every_2m) | every_Xh (ex: every_6h) | every_Xd (ex: every_3d)\n\n"
-        "## Monitores e alertas — frequência e horário\n"
-        "Se a instrução recebida mencionar 'monitor', 'alerta', 'avise', 'notifique', 'threshold',\n"
-        "'status', 'fique de olho' ou condição a ser verificada periodicamente,\n"
-        "use SEMPRE frequency='every_5m' e NÃO inclua time nem weekday nem day.\n"
-        "NUNCA pergunte ao usuário que horário deseja — monitores não têm hora fixa.\n"
-        "O task_code deve usar ctx.notify() (não ctx.notify_alert()) para disparar notificações.\n\n"
+        "## Monitores e alertas — usar schedule_monitor, NUNCA schedule_task\n"
+        "Se a instrução recebida mencionar alerta/avise/notifique/monitore/threshold/caso X>N:\n"
+        "→ A tarefa já foi criada via schedule_monitor com condition_sql/operator/threshold.\n"
+        "→ O task_code deve APENAS retornar o valor atual — sem ctx.notify(), sem lógica condicional.\n"
+        "→ Exemplo: return f'Total de pedidos: {rows[0][\"total\"]}'\n"
+        "→ NÃO use ctx.notify() no task_code de monitores — o daemon notifica automaticamente.\n\n"
         "## REGRA CRÍTICA — criar vs editar\n"
         "schedule_task SOMENTE quando o usuário pedir explicitamente para CRIAR uma tarefa nova.\n"
         "Para qualquer outra operação sobre tarefa existente (salvar instructions, editar campos,\n"
@@ -1590,13 +1598,27 @@ def _build_scheduling_graph(llm):
             "Extraia os parâmetros de agendamento da instrução abaixo. "
             "Responda APENAS com JSON válido, sem explicação nem marcação markdown.\n\n"
             f"Instrução: {state['user_request']}\n\n"
-            'Formato: {"name": "nome curto (máx 60 chars)", "description": "descrição clara", '
-            '"frequency": "once|daily|weekly|monthly|every_Xm|every_Xh|every_Xd", '
-            '"weekday": "monday|tuesday|wednesday|thursday|friday|saturday|sunday ou null", '
-            '"day": "número 1-31 para monthly ou null", "time": "HH:MM ou null"}\n\n'
-            "REGRAS: monitores (me avise/notifique/fique de olho) → frequency=every_5m, time=null. "
-            "weekly → weekday obrigatório. monthly → day obrigatório. "
-            "Se tempo não informado → time=null."
+            'Formato: {\n'
+            '  "task_type": "monitor" ou "report",\n'
+            '  "name": "nome curto (máx 60 chars)",\n'
+            '  "description": "descrição clara",\n'
+            '  "frequency": "once|daily|weekly|monthly|every_Xm|every_Xh|every_Xd",\n'
+            '  "weekday": "monday|tuesday|wednesday|thursday|friday|saturday|sunday ou null",\n'
+            '  "day": "número 1-31 para monthly ou null",\n'
+            '  "time": "HH:MM ou null",\n'
+            '  "date_range": "ytd|mtd|today|last_7d|last_30d|last_90d ou null",\n'
+            '  "condition_sql": "query SELECT PostgreSQL para monitors (schema brazil, sem prefixo) ou null",\n'
+            '  "condition_operator": ">= | > | <= | < | == | != | is_empty | is_not_empty ou null",\n'
+            '  "condition_threshold": "número ou null"\n'
+            '}\n\n'
+            "REGRAS:\n"
+            "- task_type=monitor se o pedido menciona: alerte/avise/notifique/monitore/caso X>N/threshold\n"
+            "- task_type=report para relatórios, gráficos, planilhas recorrentes\n"
+            "- monitor: frequency=every_5m por padrão, time=null; preencha condition_sql/operator/threshold\n"
+            "- condition_sql deve usar CURRENT_DATE para 'hoje', CURRENT_DATE-N para períodos\n"
+            "- tabelas disponíveis: purchase_order, order_item, customer, product (NÃO use 'orders')\n"
+            "- date_range: preencha quando o pedido especifica período (ano atual→ytd, mês→mtd)\n"
+            "- weekly → weekday obrigatório. monthly → day obrigatório.\n"
         )
         response = llm.invoke([HumanMessage(content=param_prompt)])
         try:
@@ -1606,19 +1628,36 @@ def _build_scheduling_graph(llm):
         except Exception as e:
             return {"error": f"Erro ao interpretar parâmetros de agendamento: {e}", "task_id": "", "task_name": ""}
 
-        call_params: dict = {
+        is_monitor = params.get("task_type") == "monitor"
+        base_params: dict = {
             "name": params.get("name", "Nova Tarefa"),
             "description": params.get("description", ""),
             "frequency": params.get("frequency", "daily"),
         }
         if params.get("weekday"):
-            call_params["weekday"] = params["weekday"]
-        if params.get("day") and params["day"] is not None:
-            call_params["day"] = str(params["day"])
-        if params.get("time") and params["time"] is not None:
-            call_params["time"] = params["time"]
+            base_params["weekday"] = params["weekday"]
+        if params.get("day") is not None:
+            base_params["day"] = str(params["day"])
+        if params.get("time"):
+            base_params["time"] = params["time"]
+        if params.get("date_range"):
+            base_params["date_range"] = params["date_range"]
 
-        result = schedule_task.invoke(call_params)
+        if is_monitor:
+            condition_sql = params.get("condition_sql") or ""
+            condition_operator = params.get("condition_operator") or ""
+            if not condition_sql or not condition_operator:
+                return {"error": "Monitor sem condition_sql ou condition_operator extraídos.", "task_id": "", "task_name": ""}
+            base_params["condition_sql"] = condition_sql
+            base_params["condition_operator"] = condition_operator
+            if params.get("condition_threshold") is not None:
+                try:
+                    base_params["condition_threshold"] = float(params["condition_threshold"])
+                except (TypeError, ValueError):
+                    pass
+            result = schedule_monitor.invoke(base_params)
+        else:
+            result = schedule_task.invoke(base_params)
 
         m = _re_sg.search(r'\[(\d+)\]', result)
         task_id = m.group(1) if m else ""
@@ -1626,7 +1665,7 @@ def _build_scheduling_graph(llm):
         if not task_id:
             return {"error": f"Erro ao criar tarefa: {result}", "task_id": "", "task_name": ""}
 
-        return {"task_id": task_id, "task_name": params.get("name", ""), "error": ""}
+        return {"task_id": task_id, "task_name": params.get("name", ""), "error": "", "is_monitor": is_monitor}
 
     # ── Node: consultar_dados ────────────────────────────────────────────────
     # Responsabilidade única: o analista identifica a skill correta, busca dados
@@ -1774,6 +1813,7 @@ def _build_scheduling_graph(llm):
         result = test_task_code.invoke({
             "task_id": state["task_id"],
             "code": state["task_code"],
+            "session_id_override": state.get("session_id", ""),
         })
 
         is_error = result.startswith("❌") or "❌" in result[:30]
@@ -1970,7 +2010,7 @@ def gerenciar_agenda(instrucao: str) -> str:
     Use para: criar, listar, editar, deletar tarefas e salvar instruções de execução.
 
     Exemplos de instruções:
-      - "Criar tarefa 'Relatório OEE Semanal', frequência weekly, weekday monday, time 08:00"
+      - "Criar tarefa 'Relatório Semanal de Pedidos', frequência weekly, weekday monday, time 08:00"
       - "Listar todas as tarefas agendadas"
       - "Deletar tarefa 003"
       - "set_instructions task 001: Passo 1 — buscar produção dos últimos 7 dias com
@@ -1990,7 +2030,7 @@ def gerenciar_agenda(instrucao: str) -> str:
 
 
 @tool
-def criar_tarefa_agendada(instrucao: str) -> str:
+def criar_tarefa_agendada(instrucao: str, config: RunnableConfig = None) -> str:
     """Cria uma nova tarefa agendada com código Python determinístico gerado automaticamente.
 
     Use para CRIAR/AGENDAR uma nova tarefa automática, relatório periódico ou monitor.
@@ -2005,14 +2045,15 @@ def criar_tarefa_agendada(instrucao: str) -> str:
     Args:
         instrucao: Descrição completa do que a tarefa deve fazer, com frequência e
                    qualquer parâmetro relevante. Exemplos:
-                   "Relatório semanal de OEE toda segunda às 8h"
-                   "Monitor de produção a cada 5 minutos, alerta se OEE < 80%"
-                   "Planilha mensal de defeitos no dia 1 de cada mês"
+                   "Relatório semanal de pedidos toda segunda às 8h"
+                   "Monitor a cada 5 minutos, alerta se inconsistências do dia passarem de 50"
+                   "Planilha mensal de pedidos por cliente no dia 1 de cada mês"
     """
     if _scheduling_graph is None:
         return "SchedulingGraph não inicializado."
 
-    session_id = _current_session.get()
+    session_id = ((config or {}).get("configurable") or {}).get("thread_id") or _current_session.get()
+    _current_session.set(session_id)  # garante propagação para o thread atual e sub-chamadas
     _push_event(session_id, {"type": "tool", "name": "criar_tarefa_agendada", "label": "🗓️ Iniciando criação de tarefa agendada"})
 
     initial_state: SchedulingState = {
@@ -2032,7 +2073,7 @@ def criar_tarefa_agendada(instrucao: str) -> str:
 
 
 @tool
-def editar_tarefa_agendada(task_id: str, modificacao: str) -> str:
+def editar_tarefa_agendada(task_id: str, modificacao: str, config: RunnableConfig = None) -> str:
     """Edita o código Python de uma tarefa agendada existente.
 
     Use quando o usuário pedir para EDITAR/ALTERAR/AJUSTAR qualquer aspecto de uma
@@ -2048,12 +2089,13 @@ def editar_tarefa_agendada(task_id: str, modificacao: str) -> str:
         modificacao: O que deve ser alterado. Exemplos:
                      "Mude a cor das barras para laranja"
                      "Adicione linha de meta (target) no gráfico"
-                     "Mude o threshold de OEE de 80% para 75%"
+                     "Mude o threshold de inconsistências de 50 para 30"
     """
     if _scheduling_graph is None:
         return "SchedulingGraph não inicializado."
 
-    session_id = _current_session.get()
+    session_id = ((config or {}).get("configurable") or {}).get("thread_id") or _current_session.get()
+    _current_session.set(session_id)  # garante propagação para o thread atual e sub-chamadas
     _push_event(session_id, {"type": "tool", "name": "editar_tarefa_agendada", "label": "✏️ Editando código da tarefa"})
 
     initial_state: SchedulingState = {
@@ -2079,7 +2121,10 @@ MAX_INTERACOES = int(os.getenv("MAX_INTERACOES", "10"))
 
 def _build_orchestrator(llm, checkpointer=None):
     ORQ_SYSTEM_PROMPT = (
-        "Você é o agente orquestrador de um sistema de monitoramento industrial.\n\n"
+        "Você é o agente orquestrador de um sistema de gestão de pedidos de compra (Brazil Purchase Orders). "
+        "O sistema processa pedidos de clientes, valida itens, gerencia inconsistências e oferece visibilidade "
+        "sobre o pipeline de vendas Brazil. NÃO é um sistema de chão-de-fábrica — não há OEE, FPY, produção "
+        "ou linhas de montagem. 'Pedidos' neste sistema significa SEMPRE purchase_order.\n\n"
         "## HISTÓRICO DE CONVERSA\n"
         "As mensagens acima (antes desta instrução) são o histórico completo desta sessão, "
         "incluindo perguntas e respostas anteriores ao último refresh da página do usuário. "
@@ -2089,12 +2134,15 @@ def _build_orchestrator(llm, checkpointer=None):
         "## ROTEAMENTO — leia isto antes de qualquer ação\n"
         "Classifique o pedido do usuário em UMA das categorias abaixo e siga APENAS o fluxo correspondente:\n\n"
         "  A) CONSULTA PONTUAL — o usuário quer ver dados, gráficos, tabelas ou análises AGORA.\n"
-        "     Palavras-chave: 'me diga', 'mostre', 'qual é', 'quanto', 'como está', 'gráfico de',\n"
-        "     'produção de hoje', 'análise de', 'compare', 'relatório de'.\n"
-        "     → Chame calcular_periodo() + consultar_analista(). NÃO envolva gerenciar_agenda.\n\n"
+        "     Palavras-chave: 'me diga', 'mostre', 'qual é', 'quanto', 'quantos', 'como está',\n"
+        "     'gráfico de', 'análise de', 'compare', 'relatório de',\n"
+        "     'pedidos', 'itens', 'clientes', 'erros', 'inconsistências', 'status', 'aprovados', 'rejeitados'.\n"
+        "     → Chame calcular_periodo() + consultar_analista(). NÃO envolva gerenciar_agenda.\n"
+        "     REGRA: qualquer pergunta sobre volumes, contagens ou dados do sistema é categoria A.\n"
+        "     NUNCA peça ao usuário para esclarecer o que é 'pedido' — neste sistema 'pedido' = purchase_order.\n\n"
         "  B) PERGUNTA CONCEITUAL — o usuário quer saber o que algo significa ou como é calculado.\n"
         "     → Chame a tool rag_* mais adequada ao tema da pergunta. Responda diretamente sem buscar dados.\n"
-        "       rag_dominio()      → KPIs, painéis, interpretação, linhas, turnos\n"
+        "       rag_dominio()      → domínio, status de pedido, campos de data, clientes, canais\n"
         "       rag_capacidades()  → o que o agente pode fazer, agendamento, monitores\n"
         "       rag_arquitetura()  → como o sistema funciona, sub-agentes, skills\n"
         "       rag_dados()        → endpoints da API, schema do banco, colunas\n\n"
@@ -2105,13 +2153,13 @@ def _build_orchestrator(llm, checkpointer=None):
         "  D) PERGUNTA SIMPLES — data, hora, saudação, dúvida geral sem dados.\n"
         "     → Responda diretamente sem chamar nenhuma tool de dados.\n\n"
         "  E) PERGUNTA SOBRE O DASHBOARD (texto ou imagem) — o usuário pergunta sobre o que está\n"
-        "     visível na tela: valores nos gráficos, KPIs, alertas, notificações, comparações entre\n"
-        "     linhas/turnos. Palavras-chave: 'na tela', 'no dashboard', 'o que aparece', 'o gráfico\n"
+        "     visível na tela: valores nos gráficos, KPIs, alertas, notificações.\n"
+        "     Palavras-chave: 'na tela', 'no dashboard', 'o que aparece', 'o gráfico\n"
         "     mostra', 'quantos alertas', 'quantas notificações', 'KPI'. Também se enquadra aqui\n"
         "     qualquer mensagem que contenha uma imagem anexada pelo usuário.\n"
         "     → Chame get_dashboard_charts() para obter os dados numéricos do dashboard.\n"
-        "     → Se a pergunta envolver o SIGNIFICADO de uma métrica (o que é FPY, como se calcula\n"
-        "       OEE, o que representa downtime), chame rag() em seguida para complementar.\n"
+        "     → Se a pergunta envolver o SIGNIFICADO de algo visível (o que é INCONSISTENCY,\n"
+        "       o que é taxa de aprovação), chame rag_dominio() em seguida para complementar.\n"
         "     → NÃO chame consultar_analista — os dados relevantes já estão na tela.\n\n"
         "  F) PAINEL CUSTOMIZADO NO DASHBOARD — o usuário quer ADICIONAR, INSERIR, FIXAR ou REMOVER\n"
         "     um gráfico como painel permanente no dashboard (seção 'Painéis Customizados').\n"
@@ -2125,15 +2173,15 @@ def _build_orchestrator(llm, checkpointer=None):
         "sem que o usuário tenha usado explicitamente palavras de inserção no dashboard (categoria F).\n\n"
         "## Análise de imagens do dashboard\n"
         "Quando o usuário envia uma imagem junto com sua mensagem, trata-se de um recorte da\n"
-        "própria tela do dashboard — pode conter gráficos de produção, FPY, OEE, defeitos,\n"
-        "KPIs, alertas ou qualquer outro elemento visual do sistema de monitoramento industrial.\n"
+        "própria tela do dashboard — pode conter gráficos de pedidos, status, clientes, erros,\n"
+        "KPIs, alertas ou qualquer outro elemento visual do sistema Brazil Purchase Orders.\n"
         "Analise visualmente o conteúdo da imagem e:\n"
         "  1. Descreva o que está sendo exibido (tipo de gráfico, eixos, tendências, valores\n"
         "     destacados, anomalias visíveis).\n"
         "  2. Se precisar dos valores numéricos exatos por trás do gráfico, chame\n"
         "     get_dashboard_charts() — ela retorna os dados brutos de todos os gráficos.\n"
-        "  3. Se precisar explicar o significado de uma métrica visível (FPY, OEE, downtime,\n"
-        "     etc.), chame rag() para buscar a definição precisa do sistema.\n"
+        "  3. Se precisar explicar o significado de algo visível (status, campos de data,\n"
+        "     taxa de aprovação), chame rag_dominio() para buscar a definição precisa.\n"
         "  4. Combine o que você vê na imagem com os dados retornados pelas tools para dar\n"
         "     uma resposta completa e contextualizada.\n\n"
         "## Follow-up sobre gráficos gerados por consultar_analista\n"
@@ -2161,9 +2209,9 @@ def _build_orchestrator(llm, checkpointer=None):
         "NUNCA peça ao usuário nome ou descrição — infira do contexto.\n"
         "Inclua na instrução: o que a tarefa faz, a frequência e (se mencionado) o horário.\n"
         "Exemplos de instrucao:\n"
-        "  'Relatório semanal de OEE toda segunda às 8h'\n"
-        "  'Monitor de OEE a cada 5 minutos, alerta se OEE < 80%'\n"
-        "  'Planilha mensal de defeitos no dia 1 de cada mês'\n\n"
+        "  'Relatório semanal de pedidos toda segunda às 8h'\n"
+        "  'Monitor a cada 5 minutos, alerta se inconsistências passarem de 50'\n"
+        "  'Planilha mensal de pedidos por cliente no dia 1 de cada mês'\n\n"
         "Após criar_tarefa_agendada retornar, repasse o resultado ao usuário.\n"
         "NÃO inclua tokens [chart:uuid], [pdf:uuid] ou [excel:uuid] na sua resposta —\n"
         "os artefatos já foram enviados ao chat automaticamente.\n\n"

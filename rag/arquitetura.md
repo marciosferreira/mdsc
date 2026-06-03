@@ -1,4 +1,4 @@
-# Arquitetura do sistema de agentes — MFG Control AI
+# Arquitetura do sistema de agentes — Brazil Purchase Orders AI
 
 O sistema usa um grafo multi-agente LangGraph com três agentes cooperando.
 
@@ -36,7 +36,7 @@ O ambiente persiste entre chamadas na mesma sessão (estilo Jupyter) — DataFra
 ### Skill do sub-agente
 
 | Arquivo | O que cobre |
-|---------|-------------|
+| --- | --- |
 | `analise_sql_livre.md` | Única skill de análise — toda pergunta de dados, simples ou complexa |
 
 ## Sub-agente de scheduling
@@ -52,12 +52,13 @@ Cada tarefa pode executar em dois modos:
 
 O objeto `ctx` injetado no `run()` oferece:
 
-| Método                              | O que faz                                          |
-|-------------------------------------|----------------------------------------------------|
-| `ctx.api(url)`                      | Chama um endpoint REST e retorna os dados como list |
-| `ctx.today()`                       | Retorna a data atual no formato `YYYY-MM-DD`        |
-| `ctx.date_range(days=N)`            | Retorna `(from_date, to_date)` para os últimos N dias|
-| `ctx.save_chart(fig)`               | Salva figura matplotlib e retorna token `[chart:uuid]`|
-| `ctx.generate_pdf(titulo, conteudo)`| Gera PDF e retorna token `[pdf:uuid]`              |
-| `ctx.generate_excel(df, nome)`      | Gera Excel e retorna token `[excel:uuid]`          |
-| `ctx.notify(msg, value, threshold)` | Dispara notificação 🔔 no dashboard                |
+| Método | O que faz |
+| --- | --- |
+| `ctx.api(url)` | Chama um endpoint REST e retorna os dados como list |
+| `ctx.sql(query)` | Executa SELECT no PostgreSQL e retorna list de dicts |
+| `ctx.today()` | Retorna a data atual no formato `YYYY-MM-DD` |
+| `ctx.date_range(days=N)` | Retorna `(from_date, to_date)` para os últimos N dias |
+| `ctx.save_chart(fig)` | Salva figura matplotlib e retorna token `[chart:uuid]` |
+| `ctx.generate_pdf(titulo, conteudo)` | Gera PDF e retorna token `[pdf:uuid]` |
+| `ctx.generate_excel(df, nome)` | Gera Excel e retorna token `[excel:uuid]` |
+| `ctx.notify(msg, value, threshold)` | Dispara notificação no dashboard |

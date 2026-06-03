@@ -4,6 +4,20 @@
 
 ---
 
+## ⚠️ COLUNAS DE DATA — leia antes de escrever qualquer SQL
+
+| Uso | Coluna correta | NUNCA use |
+| --- | --- | --- |
+| Data de entrada no sistema (filtros temporais) | `purchase_order.created_at` | ~~`import_date`~~ ~~`date`~~ |
+| Data original informada pelo cliente | `purchase_order.issue_date` | ~~`order_date`~~ ~~`date`~~ |
+| Mês de entrega desejado | `purchase_order.delivery_month` | — |
+| Data do item | `order_item.created_at` | ~~`date`~~ |
+| Data da resolução | `alert_resolve.created_at` | ~~`date`~~ |
+
+**A dimensão temporal principal dos pedidos é `created_at`.** Para "pedidos deste mês", "pedidos de hoje", "pedidos por período" — use sempre `created_at`.
+
+---
+
 ## Esta é a única skill de análise
 
 Use para qualquer pergunta sobre dados: simples ou complexa, uma tabela ou várias, quantidade ou valor, listagem ou agrupamento. Não existe outra skill de consulta.
@@ -22,21 +36,19 @@ Use para qualquer pergunta sobre dados: simples ou complexa, uma tabela ou vári
 
 ---
 
-## Modo agendamento — task_code com ctx.sql()
+## Modo agendamento — duas tools distintas
 
-Quando a análise for para agendamento (`[PARA_AGENDAMENTO]`), o `task_code` **deve usar `ctx.sql()`**.
-Use f-string com `{from_date}` e `{to_date}` — nunca datas literais fixas.
+### `schedule_task` — relatórios e gráficos recorrentes
+
+Use para: "gere um relatório diário", "envie gráfico toda segunda", "planilha mensal".
 
 ```python
 def run(from_date, to_date, ctx):
     rows = ctx.sql(f"""
-        SELECT
-            status::text AS status,
-            COUNT(*) AS total
+        SELECT status::text AS status, COUNT(*) AS total
         FROM purchase_order
-        WHERE issue_date::date BETWEEN '{from_date}' AND '{to_date}'
-        GROUP BY status
-        ORDER BY total DESC
+        WHERE created_at::date BETWEEN '{from_date}' AND '{to_date}'
+        GROUP BY status ORDER BY total DESC
     """)
     df = pd.DataFrame(rows)
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -46,18 +58,48 @@ def run(from_date, to_date, ctx):
     return ctx.save_chart(fig)
 ```
 
-Para monitores (`every_Xm`/`every_Xh`), use `ctx.today()`:
+### `schedule_monitor` — alertas e monitores de threshold
+
+Use para: "me alerte se X > N", "notifique se não houver Y", "monitore Z e avise quando passar de N".
+
+**NUNCA use `ctx.notify()` no task_code.** A condição fica em `condition_sql` + `condition_operator` + `condition_threshold` — o daemon avalia e notifica automaticamente.
+
+O task_code do monitor apenas retorna o valor atual:
+
 ```python
 def run(from_date, to_date, ctx):
-    hoje = ctx.today()
     rows = ctx.sql(f"""
         SELECT COUNT(*) AS total FROM purchase_order
-        WHERE issue_date::date = '{hoje}' AND status::text = 'INCONSISTENCY'
+        WHERE created_at::date = '{from_date}'
     """)
-    total = rows[0]['total']
-    if total > 10:
-        ctx.notify(f'{total} pedidos com inconsistência hoje', value=total, threshold=10)
-    return f'Inconsistências hoje: {total}'
+    return f"Total de pedidos: {rows[0]['total']}"
+```
+
+### Padrões de condition_sql — use estes exatos, nunca invente nomes de tabela
+
+| O usuário pediu | condition_sql | operator | threshold |
+|---|---|---|---|
+| total de pedidos hoje >= N | `SELECT COUNT(*) FROM purchase_order WHERE created_at::date = CURRENT_DATE` | `>=` | N |
+| total de pedidos de todos os tempos >= N | `SELECT COUNT(*) FROM purchase_order` | `>=` | N |
+| pedidos com inconsistência hoje > N | `SELECT COUNT(*) FROM purchase_order WHERE status::text = 'INCONSISTENCY' AND created_at::date = CURRENT_DATE` | `>` | N |
+| valor total de pedidos hoje >= N | `SELECT COALESCE(SUM(oi.value_price_total),0) FROM order_item oi JOIN purchase_order po ON po.id=oi.purchase_order_id WHERE po.created_at::date = CURRENT_DATE` | `>=` | N |
+| sem pedidos hoje (alerta se vazio) | `SELECT id FROM purchase_order WHERE created_at::date = CURRENT_DATE LIMIT 1` | `is_empty` | — |
+| há pedidos pendentes | `SELECT id FROM purchase_order WHERE status::text = 'PENDING' LIMIT 1` | `is_not_empty` | — |
+| clientes únicos hoje >= N | `SELECT COUNT(DISTINCT customer_id) FROM purchase_order WHERE created_at::date = CURRENT_DATE` | `>=` | N |
+
+**Tabelas corretas:** `purchase_order`, `order_item`, `customer`, `product` — **NUNCA** `orders`, `pedidos`, `items`.
+
+Exemplo de criação — "alertar se total de pedidos hoje >= 160":
+
+```python
+schedule_monitor(
+    name="Monitor de Pedidos",
+    description="Alerta se total de pedidos do dia >= 160",
+    frequency="every_5m",
+    condition_sql="SELECT COUNT(*) FROM purchase_order WHERE created_at::date = CURRENT_DATE",
+    condition_operator=">=",
+    condition_threshold=160,
+)
 ```
 
 ---
@@ -68,11 +110,11 @@ def run(from_date, to_date, ctx):
 |-------|-------------|
 | Schema | `search_path=brazil` — use nomes de tabela sem prefixo |
 | Enums | Sempre converter com `::text` (ex: `status::text`, `channel::text`) |
-| Data do pedido | `purchase_order.issue_date` — NÃO `date`, NÃO `order_date` |
+| Data principal do pedido | `purchase_order.created_at` — NÃO `date`, NÃO `order_date` |
 | Hoje | `CURRENT_DATE` |
-| Últimos N dias | `issue_date >= CURRENT_DATE - INTERVAL 'N days'` |
-| Este mês | `DATE_TRUNC('month', issue_date) = DATE_TRUNC('month', CURRENT_DATE)` |
-| Formatar data | `TO_CHAR(issue_date, 'YYYY-MM-DD')` ou `'YYYY-MM'` |
+| Últimos N dias | `created_at >= CURRENT_DATE - INTERVAL 'N days'` |
+| Este mês | `DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)` |
+| Formatar data | `TO_CHAR(created_at, 'YYYY-MM-DD')` ou `'YYYY-MM'` |
 | Apenas SELECT | Qualquer outro comando será rejeitado |
 | Sem SELECT * | Liste sempre as colunas necessárias |
 
@@ -91,8 +133,8 @@ Entidade central. Cada linha é um pedido feito por um cliente, originado de um 
 | customer_id | integer | FK → customer.id |
 | customer_name | varchar | Nome do cliente desnormalizado — prefira JOIN com customer.name |
 | file_import_id | integer | FK → file_import.id — qual arquivo originou este pedido |
-| **issue_date** | timestamp | **Data em que o cliente emitiu o pedido — dimensão temporal principal** |
-| created_at | timestamp | Data de entrada no sistema (importação) |
+| issue_date | timestamp | Data em que o cliente emitiu o pedido (informada no arquivo) |
+| **created_at** | timestamp | **Data de entrada no sistema — dimensão temporal principal** |
 | delivery_month | timestamp | Mês em que o cliente deseja receber os produtos |
 | status | enum | `APPROVED` · `INCONSISTENCY` · `PENDING` · `REJECTED` — cast: `status::text` |
 | customer_usage_order | enum | `CU1` · `CU2` — cast: `customer_usage_order::text` |
@@ -291,8 +333,8 @@ customer (N) ──→ (1) city  [nullable]
 
 | Dimensão | Tabela.Coluna |
 |----------|--------------|
-| Tempo do pedido | `purchase_order.issue_date` |
-| Tempo de entrada no sistema | `purchase_order.created_at` |
+| Tempo do pedido (principal) | `purchase_order.created_at` |
+| Data original do cliente | `purchase_order.issue_date` |
 | Mês de entrega | `purchase_order.delivery_month` |
 | Tempo da resolução | `alert_resolve.created_at` |
 | Cliente | `customer.name` · `.channel` · `.state` · `.regional` · `.cnpj` |

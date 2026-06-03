@@ -73,15 +73,28 @@ def _save_report(task: dict, content: str, now: datetime) -> Path:
 
 
 def _date_range_for_task(task: dict) -> tuple[str, str]:
-    """Calcula from_date/to_date com base na frequência da tarefa.
+    """Calcula from_date/to_date para a tarefa.
 
-    Garante que o task_code sempre receba o período correto para cada
-    frequência, sem depender de datas hardcoded no código da tarefa.
+    Se date_range estiver definido, usa ele (independente da frequência).
+    Caso contrário, usa a janela padrão baseada na frequência.
     """
     import re
     today = datetime.now().date()
-    freq  = task.get('frequency', 'daily')
 
+    dr = (task.get('date_range') or '').strip()
+    if dr == 'ytd':
+        return f"{today.year}-01-01", today.isoformat()
+    if dr == 'mtd':
+        return f"{today.year}-{today.month:02d}-01", today.isoformat()
+    if dr == 'today':
+        return today.isoformat(), today.isoformat()
+    if dr.startswith('last_'):
+        m = re.match(r'last_(\d+)d', dr)
+        if m:
+            return (today - timedelta(days=int(m.group(1)))).isoformat(), today.isoformat()
+
+    # Fallback: janela baseada na frequência
+    freq = task.get('frequency', 'daily')
     if freq == 'daily':
         delta = 1
     elif freq == 'weekly':
@@ -95,13 +108,11 @@ def _date_range_for_task(task: dict) -> tuple[str, str]:
         if m:
             delta = int(m.group(1))
         elif re.match(r'every_(\d+)[hm]', freq):
-            delta = 1  # horas ou minutos → janela de hoje
+            delta = 1
         else:
             delta = 7
 
-    from_date = (today - timedelta(days=delta)).isoformat()
-    to_date   = today.isoformat()
-    return from_date, to_date
+    return (today - timedelta(days=delta)).isoformat(), today.isoformat()
 
 
 
@@ -126,10 +137,99 @@ def _finish_run(run_id: int, status: str, output: str = None, error: str = None)
         conn.commit()
 
 
-def _execute_task(task: dict) -> None:
+def _evaluate_condition(task: dict) -> tuple[bool, str]:
+    """Avalia condition_sql antes de executar a tarefa.
+
+    Retorna (should_run, detail) onde detail é incluído na notificação automática.
+    """
+    import os
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+
+    sql      = (task.get("condition_sql") or "").strip()
+    operator = (task.get("condition_operator") or "is_not_empty").strip()
+    threshold = task.get("condition_threshold")
+
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
+            port=int(os.getenv("POSH_DB_PORT", "5432")),
+            user=os.getenv("POSH_DB_USER", "postgres"),
+            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
+            dbname=os.getenv("POSH_DB_NAME", "postgres"),
+            options="-c search_path=brazil -c default_transaction_read_only=on",
+        )
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("[daemon] Erro ao avaliar condition_sql da task %s: %s", task.get("id"), exc)
+        return False, f"erro na condição: {exc}"
+
+    if operator == "is_empty":
+        met = len(rows) == 0
+        detail = "sem registros" if met else f"{len(rows)} registro(s) — condição não atingida"
+        return met, detail
+
+    if operator == "is_not_empty":
+        met = len(rows) > 0
+        detail = f"{len(rows)} registro(s)" if met else "sem registros — condição não atingida"
+        return met, detail
+
+    # Operadores numéricos — usa o primeiro valor da primeira linha
+    if not rows:
+        return False, "sem dados"
+
+    first_val = list(dict(rows[0]).values())[0]
+    try:
+        value = float(first_val)
+    except (TypeError, ValueError):
+        return False, f"valor não numérico: {first_val}"
+
+    th = float(threshold) if threshold is not None else 0.0
+    met = {">": value > th, "<": value < th, ">=": value >= th,
+           "<=": value <= th, "==": value == th, "!=": value != th}.get(operator, False)
+
+    val_fmt = int(value) if value == int(value) else round(value, 2)
+    th_fmt  = int(th)    if th    == int(th)    else round(th, 2)
+    detail  = f"{val_fmt} {operator} {th_fmt}"
+    return met, detail
+
+
+def _execute_task(task: dict, manual: bool = False) -> None:
     now      = datetime.now()
     task_id  = task['id']
     now_str  = now.strftime('%Y-%m-%d %H:%M:%S')
+
+    # ── 0. Avalia condição (se definida) — sem criar run record se não atingida
+    condition_detail = ""
+    if task.get("condition_sql"):
+        should_run, condition_detail = _evaluate_condition(task)
+        next_run = calculate_next_run(task.get('frequency', 'daily'), task.get('time'), task.get('weekday'), task.get('day'))
+
+        if not should_run:
+            logger.info("[daemon] Task %s '%s' — condição não atingida: %s", task_id, task.get('name'), condition_detail)
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE scheduled_tasks SET next_run=?, condition_state=0 WHERE id=?",
+                    (next_run, task_id),
+                )
+                conn.commit()
+            return
+
+        last_state = int(task.get("condition_state") or 0)
+        if last_state == 1 and not manual:
+            # Daemon: condição ainda ativa, já notificou — aguarda reset
+            logger.info("[daemon] Task %s '%s' — condição ativa, aguardando reset", task_id, task.get('name'))
+            with get_db() as conn:
+                conn.execute("UPDATE scheduled_tasks SET next_run=? WHERE id=?", (next_run, task_id))
+                conn.commit()
+            return
+
+        # Condição atingida — executa (manual ignora condition_state, daemon só se 0→1)
 
     # ── 1. Marca como running (impede execução dupla) ────────────────────────
     with get_db() as conn:
@@ -164,8 +264,16 @@ def _execute_task(task: dict) -> None:
 
         user_id = task.get("user_id")
 
+        task_name = task.get("name", "")
+        if condition_detail:
+            task_name = f"{task_name}: {condition_detail}"
+
         def _run_code():
-            tokens = run_task_code(task["task_code"], from_date, to_date, session_id, user_id=user_id)
+            tokens = run_task_code(
+                task["task_code"], from_date, to_date, session_id,
+                user_id=user_id, notify_enabled=bool(task.get("notify", 0)),
+                task_name=task_name,
+            )
             return " ".join(tokens)
 
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -200,10 +308,12 @@ def _execute_task(task: dict) -> None:
                 task.get('weekday'),
                 task.get('day'),
             )
+            # Se havia condição, marca estado como ativo (1) para evitar re-notificação
+            new_cond_state = 1 if task.get("condition_sql") else int(task.get("condition_state") or 0)
             with get_db() as conn:
                 conn.execute(
-                    "UPDATE scheduled_tasks SET last_run=?, next_run=?, status='active', retry_count=0 WHERE id=?",
-                    (last_run, next_run, task_id),
+                    "UPDATE scheduled_tasks SET last_run=?, next_run=?, status='active', retry_count=0, condition_state=? WHERE id=?",
+                    (last_run, next_run, new_cond_state, task_id),
                 )
                 conn.commit()
 

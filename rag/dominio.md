@@ -29,11 +29,11 @@ Itens individuais do pedido têm seu próprio status, independente do PO.
 
 | Campo | Significado |
 |-------|-------------|
-| `issue_date` | Data de emissão do pedido pelo cliente — **a data "oficial" do pedido** |
-| `created_at` | Data/hora de entrada no sistema (importação) |
+| `created_at` | Data/hora de entrada no sistema (importação) — **a data "oficial" do pedido** |
+| `issue_date` | Data de emissão original informada pelo cliente no arquivo |
 | `delivery_month` | Mês de entrega previsto pelo cliente |
 
-**Para filtros temporais de "pedidos de hoje/esta semana/etc", use `issue_date`** — ela representa quando o pedido foi feito. Use `created_at` apenas quando a pergunta for sobre quando o pedido foi importado no sistema.
+**Para filtros temporais de "pedidos de hoje/esta semana/etc", use `created_at`** — ela representa quando o pedido entrou no sistema. Use `issue_date` apenas quando a pergunta for especificamente sobre a data original informada pelo cliente no arquivo.
 
 ## Entidades principais
 
@@ -64,7 +64,7 @@ Itens individuais do pedido têm seu próprio status, independente do PO.
 | Quantidade total de itens | `SUM(oi.quantity)` em `order_item` |
 | Valor total | `SUM(oi.value_price_total)` em `order_item` |
 | Produtos mais pedidos | `COUNT(oi.id)` ou `SUM(oi.quantity)` agrupado por `product_group` / `part_number` |
-| Tempo de processamento | `AVG(EXTRACT(EPOCH FROM (created_at - issue_date)) / 86400)` em dias |
+| Tempo de processamento | `AVG(EXTRACT(EPOCH FROM (created_at - issue_date)) / 86400)` em dias (diferença entre entrada no sistema e data do cliente) |
 
 ## Canais de venda
 

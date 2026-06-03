@@ -21,8 +21,8 @@ Representa um pedido feito por um cliente. É a entidade central do sistema.
 | file_import_id | integer | Qual arquivo originou este pedido (→ file_import) |
 | customer_id | integer | Cliente que fez o pedido (→ customer) |
 | customer_name | varchar | Nome do cliente desnormalizado — use customer.name para análises por cliente |
-| **issue_date** | timestamp | **Data em que o cliente emitiu o pedido — principal dimensão temporal para análises** |
-| created_at | timestamp | Data em que o pedido entrou no sistema (importação) |
+| issue_date | timestamp | Data em que o cliente emitiu o pedido (informada pelo cliente no arquivo) |
+| **created_at** | timestamp | **Data em que o pedido entrou no sistema — principal dimensão temporal para análises** |
 | delivery_month | timestamp | Mês em que o cliente deseja receber os produtos |
 | status | enum | Estado atual do pedido: `APPROVED` (aprovado), `INCONSISTENCY` (tem problemas, aguarda resolução), `PENDING` (em análise), `REJECTED` (rejeitado) |
 | customer_usage_order | enum | Tipo de uso do pedido pelo cliente: `CU1` ou `CU2` |
@@ -227,7 +227,7 @@ customer (N) ──────────────────────�
 
 Ao construir queries, o agente pode cruzar qualquer combinação das dimensões abaixo:
 
-**Tempo:** `purchase_order.issue_date` (data do pedido), `purchase_order.created_at` (entrada no sistema), `purchase_order.delivery_month` (entrega prevista), `alert_resolve.created_at`
+**Tempo:** `purchase_order.created_at` (entrada no sistema — dimensão principal), `purchase_order.issue_date` (data original do cliente), `purchase_order.delivery_month` (entrega prevista), `alert_resolve.created_at`
 
 **Cliente:** `customer.name`, `customer.channel`, `customer.state`, `customer.regional`, `customer.cnpj`
 
@@ -251,13 +251,13 @@ Todos os endpoints de data usam `from` e `to` no formato `YYYY-MM-DD`.
 
 | Método | Endpoint | Descrição |
 |--------|----------|-----------|
-| GET | `/brazil/purchase-orders` | Lista purchase orders (filtros: status, customer_id, from/to por issue_date) |
+| GET | `/brazil/purchase-orders` | Lista purchase orders (filtros: status, customer_id, from/to por created_at) |
 | GET | `/brazil/purchase-orders/{id}` | Detalhes de uma PO com seus itens |
-| GET | `/brazil/order-items` | Lista itens (filtros: status, product_group, from/to por issue_date da PO) |
-| GET | `/brazil/orders/summary` | Resumo agregado de pedidos (from/to por issue_date) |
-| GET | `/brazil/order-items/summary` | Resumo de itens com error_ratio (from/to por issue_date) |
-| GET | `/brazil/order-items/errors-by-type` | Contagem de erros por tipo (from/to por issue_date) |
-| GET | `/brazil/alert-resolves/by-status` | Contagem de resoluções por status (from/to por created_at) |
+| GET | `/brazil/order-items` | Lista itens (filtros: status, product_group, from/to por created_at da PO) |
+| GET | `/brazil/orders/summary` | Resumo agregado de pedidos (from/to por created_at) |
+| GET | `/brazil/order-items/summary` | Resumo de itens com error_ratio (from/to por created_at) |
+| GET | `/brazil/alert-resolves/by-status` | Contagem de alertas resolvidos por tipo de erro (from/to por resolved_at) |
+| GET | `/brazil/alert-resolves/by-dim` | Top 20 alertas resolvidos agrupados por dimensão (name/cnpj/state/city/channel) com breakdown por tipo de erro |
 | GET | `/brazil/customers` | Lista clientes (filtros: search, channel) |
 | GET | `/brazil/products` | Lista produtos (filtros: search, product_group, status) |
 
