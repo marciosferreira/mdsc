@@ -1,0 +1,16 @@
+{
+  "task_id": "024",
+  "task_name": "Relatório de Pedidos",
+  "run_at": "2026-06-15T13:20:42.178946",
+  "status": "pending_send",
+  "pdf_urls": [
+    "http://localhost:8000/pdf/b9f70c67-f86d-4ddb-a047-be6e1416c1ce"
+  ],
+  "email": null,
+  "schedule": {
+    "frequency": "weekly",
+    "weekday": "monday",
+    "day": null,
+    "time": "08:00"
+  }
+}

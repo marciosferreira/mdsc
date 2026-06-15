@@ -102,6 +102,14 @@ O task_code usa `from_date`/`to_date` normalmente — o daemon garante os valore
 | "relatório diário" | *(não definir — usa padrão da frequência)* |
 
 > **NUNCA** calcule o intervalo dentro do task_code com `ctx.today()` para substituir `date_range`. Defina `date_range` na tarefa e use `from_date`/`to_date` no código.
+>
+> ⚠️ **Ao testar**: `test_task_code(task_id, code)` sem `from_date`/`to_date` usa por padrão
+> "últimos 7 dias" — isso NÃO reflete o `date_range` real da tarefa. Para tarefas com
+> `date_range='today'`, `'mtd'` ou `'ytd'`, passe explicitamente `from_date`/`to_date`
+> equivalentes ao `date_range` (ex: `from_date=to_date=hoje` para `'today'`) para que
+> o resultado do teste corresponda ao que será gerado em produção. Caso contrário, o
+> teste pode mostrar dados de um dia/período diferente do esperado, mesmo que o código
+> esteja correto.
 
 ---
 

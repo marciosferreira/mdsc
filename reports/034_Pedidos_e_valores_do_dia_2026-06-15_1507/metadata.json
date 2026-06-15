@@ -1,0 +1,14 @@
+{
+  "task_id": "034",
+  "task_name": "Pedidos e valores do dia",
+  "run_at": "2026-06-15T15:07:23.950255",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "daily",
+    "weekday": null,
+    "day": null,
+    "time": "08:00"
+  }
+}

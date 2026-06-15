@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import cache_utils
 from db import get_db, init_db, migrate_db, shift_dates_to_today
 from routers.brazil import router as brazil_router
 
@@ -206,6 +207,7 @@ async def _daily_date_shifter():
         delta = shift_dates_to_today()
         if delta:
             logger.info("Date shift automático aplicado: +%d dia(s)", delta)
+            cache_utils.clear_all()
 
 
 @app.on_event("startup")

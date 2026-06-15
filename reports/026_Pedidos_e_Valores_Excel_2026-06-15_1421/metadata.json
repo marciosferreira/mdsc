@@ -1,0 +1,14 @@
+{
+  "task_id": "026",
+  "task_name": "Pedidos e Valores Excel",
+  "run_at": "2026-06-15T14:21:23.202702",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "daily",
+    "weekday": null,
+    "day": null,
+    "time": "08:00"
+  }
+}

@@ -104,6 +104,16 @@ def add_chart_to_dashboard(title: str, description: str, code: str) -> str:
     Chart.js {"type": ..., "data": {...}, "options": {...}}.
     Use test_widget_code para validar ANTES de chamar esta tool.
 
+    ⚠️  IMPORTANTE sobre datas: a cada refresh do dashboard, `from_date`/`to_date`
+    recebidos por run() são SEMPRE os últimos 7 dias (janela fixa do dashboard) —
+    NÃO refletem o período que o usuário pediu ao criar o painel.
+    Se o usuário pediu um período diferente (ex: "últimos 3 meses", "últimos 30 dias",
+    "este mês"), o código DEVE calcular seu próprio range internamente a partir de
+    `date.today()` (ex: `pd.Timestamp(date.today()) - pd.DateOffset(months=3)`) e
+    usar esse range na query — ignorando os `from_date`/`to_date` recebidos.
+    Use `from_date`/`to_date` recebidos apenas quando o painel for explicitamente
+    "rolling últimos 7 dias" (o padrão do dashboard).
+
     Args:
         title: Título exibido no painel (ex: "Defeitos por Categoria — Últimos 7 dias").
         description: Descrição curta do que o painel mostra.
@@ -203,6 +213,11 @@ def update_widget(widget_id: str, code: str, title: str = "", description: str =
     3. Modificar o código
     4. test_widget_code → validar
     5. update_widget → salvar e atualizar no dashboard
+
+    ⚠️  Mesma regra de datas do add_chart_to_dashboard: `from_date`/`to_date`
+    recebidos por run() são sempre os últimos 7 dias. Para períodos fixos
+    diferentes (ex: "últimos 3 meses"), calcule o range internamente a partir
+    de `date.today()`.
 
     Args:
         widget_id: ID completo ou primeiros 8 caracteres do ID do painel.

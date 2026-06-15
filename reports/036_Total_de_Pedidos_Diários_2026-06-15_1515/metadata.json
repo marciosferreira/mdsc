@@ -1,0 +1,14 @@
+{
+  "task_id": "036",
+  "task_name": "Total de Pedidos Diários",
+  "run_at": "2026-06-15T15:15:32.766194",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "daily",
+    "weekday": null,
+    "day": null,
+    "time": null
+  }
+}

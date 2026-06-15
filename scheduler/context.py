@@ -142,14 +142,23 @@ class TaskContext:
         import chart_store
         from agent_multi import _fmt_excel_sheet
 
+        def _strip_tz(df: pd.DataFrame) -> pd.DataFrame:
+            # Excel não suporta datetimes com timezone (ex.: timestamptz do Postgres).
+            for col in df.columns:
+                if isinstance(df[col].dtype, pd.DatetimeTZDtype):
+                    df[col] = df[col].dt.tz_localize(None)
+            return df
+
         output = io.BytesIO()
 
         if isinstance(df_or_sheets, dict):
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 for aba, df in df_or_sheets.items():
+                    df = _strip_tz(df)
                     df.to_excel(writer, sheet_name=aba[:31], index=False)
                     _fmt_excel_sheet(writer.sheets[aba[:31]], df)
         else:
+            df_or_sheets = _strip_tz(df_or_sheets)
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 df_or_sheets.to_excel(writer, sheet_name="Dados", index=False)
                 _fmt_excel_sheet(writer.sheets["Dados"], df_or_sheets)

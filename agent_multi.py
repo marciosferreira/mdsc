@@ -29,7 +29,7 @@ import sys
 import textwrap
 import threading
 import traceback as tb
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -1030,7 +1030,10 @@ def calcular_periodo(periodo: str) -> str:
         periodo: Descrição do período desejado. Exemplos aceitos:
             'hoje', 'ontem', 'esta semana', 'semana passada',
             'ultimos 7 dias', 'ultimos 14 dias', 'ultimos 30 dias',
-            'este mes', 'mes passado'.
+            'ultimos 3 meses', 'ultimas 2 semanas',
+            'este mes', 'mes passado',
+            'maio de 2026', 'maio/2026', '05/2026' (mês/ano específico),
+            '01/05/2026 a 31/05/2026', '2026-05-01 to 2026-05-31' (range explícito).
     """
     _tlog("calcular_periodo", "CHAMADA", periodo=periodo)
     hoje = datetime.now().date()
@@ -1055,10 +1058,76 @@ def calcular_periodo(periodo: str) -> str:
         to = primeiro_deste - timedelta(days=1)
         frm = to.replace(day=1)
     else:
-        # Extrai número de dias de expressões como "ultimos 7 dias", "last 30 days"
         import re
+        import calendar
+
+        # Range explícito: "01/05/2026 a 31/05/2026", "2026-05-01 to 2026-05-31",
+        # "de 01/05/2026 até 31/05/2026"
+        m_range = re.search(
+            r"(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{1,2}-\d{1,2})\s*(?:a|à|ate|até|to|-)\s*"
+            r"(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{1,2}-\d{1,2})",
+            p,
+        )
+        if m_range:
+            from dateutil import parser as _dateparser
+
+            def _parse_data(s: str):
+                if re.match(r"^\d{4}-\d{1,2}-\d{1,2}$", s):
+                    return _dateparser.parse(s, yearfirst=True).date()
+                return _dateparser.parse(s, dayfirst=True).date()
+
+            try:
+                frm = _parse_data(m_range.group(1))
+                to = _parse_data(m_range.group(2))
+                result = f"from={frm.isoformat()}&to={to.isoformat()}"
+                _tlog("calcular_periodo", "RETORNO", status="OK", result=result)
+                return result
+            except (ValueError, OverflowError):
+                pass
+
+        # Mês/ano específico: "maio de 2026", "maio/2026", "maio 2026", "05/2026"
+        _MESES_PT = {
+            "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4,
+            "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9,
+            "outubro": 10, "novembro": 11, "dezembro": 12,
+        }
+        m_mes_ano = re.search(
+            r"(" + "|".join(_MESES_PT) + r")\s*(?:de|/|\s)?\s*(\d{4})", p
+        )
+        if not m_mes_ano:
+            m_mes_ano = re.search(r"(?:^|\s)(\d{1,2})/(\d{4})(?:\s|$)", p)
+
+        if m_mes_ano:
+            g1 = m_mes_ano.group(1)
+            ano = int(m_mes_ano.group(2))
+            mes = _MESES_PT[g1] if g1 in _MESES_PT else int(g1)
+            if 1 <= mes <= 12:
+                frm = date(ano, mes, 1)
+                ultimo_dia = calendar.monthrange(ano, mes)[1]
+                to = date(ano, mes, ultimo_dia)
+                result = f"from={frm.isoformat()}&to={to.isoformat()}"
+                _tlog("calcular_periodo", "RETORNO", status="OK", result=result)
+                return result
+
+        m_mes = re.search(r"(\d+)\s*(m[eê]s(?:es)?|months?)", p)
+        m_sem = re.search(r"(\d+)\s*(semanas?|weeks?)", p)
+        m_dia = re.search(r"(\d+)\s*(dias?|days?)", p)
         m = re.search(r"(\d+)", p)
-        if m:
+        if m_mes:
+            from dateutil.relativedelta import relativedelta
+            n = int(m_mes.group(1))
+            frm = hoje - relativedelta(months=n)
+            to = hoje
+        elif m_sem:
+            n = int(m_sem.group(1))
+            frm = hoje - timedelta(weeks=n)
+            to = hoje
+        elif m_dia:
+            days = int(m_dia.group(1))
+            frm = hoje - timedelta(days=days - 1)
+            to = hoje
+        elif m:
+            # Número sem unidade clara: assume dias (compatibilidade)
             days = int(m.group(1))
             frm = hoje - timedelta(days=days - 1)
             to = hoje

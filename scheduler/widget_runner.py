@@ -26,7 +26,18 @@ def _build_globals(ctx: TaskContext, from_date: str, to_date: str) -> dict:
     import pandas as pd
     from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
 
+    # Módulos inofensivos: liberados mesmo que o código faça `import X` explícito
+    # (datetime/pandas/numpy já são injetados como date/datetime/timedelta/pd/np,
+    # mas o agente às vezes os importa de novo — sem risco, então permitimos).
+    _ALLOWED_IMPORTS = {
+        "time", "_strptime", "datetime", "pandas", "numpy", "math",
+        "re", "json", "statistics", "decimal", "collections", "itertools",
+    }
+
     def _blocked_import(name, *args, **kwargs):
+        top_level = name.split(".")[0]
+        if top_level in _ALLOWED_IMPORTS:
+            return builtins.__import__(name, *args, **kwargs)
         raise ImportError(
             f"Import de '{name}' não é permitido dentro do run(). "
             "Use as variáveis já disponíveis no namespace: pd, np, date, datetime, timedelta, ctx, etc."

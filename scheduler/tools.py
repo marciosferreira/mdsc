@@ -576,7 +576,18 @@ def test_task_code(task_id: str, code: str, from_date: str = "", to_date: str = 
     from datetime import datetime
 
     if not from_date or not to_date:
-        from_date, to_date = default_test_range()
+        # Usa o date_range já salvo da tarefa (se houver) para que o teste
+        # reflita o período real que será injetado em produção — evita
+        # confusão quando o código usa filtros de data exata (ex: 'today').
+        from .daemon import _date_range_for_task
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT date_range, frequency FROM scheduled_tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+        if row and row["date_range"]:
+            from_date, to_date = _date_range_for_task(dict(row))
+        else:
+            from_date, to_date = default_test_range()
 
     session_id = f"test_{task_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     try:

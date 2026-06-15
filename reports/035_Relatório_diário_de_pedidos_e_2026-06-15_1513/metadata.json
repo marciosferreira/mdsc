@@ -1,0 +1,14 @@
+{
+  "task_id": "035",
+  "task_name": "Relatório diário de pedidos e valores",
+  "run_at": "2026-06-15T15:13:41.293126",
+  "status": "pending_send",
+  "pdf_urls": [],
+  "email": null,
+  "schedule": {
+    "frequency": "daily",
+    "weekday": null,
+    "day": null,
+    "time": "08:00"
+  }
+}

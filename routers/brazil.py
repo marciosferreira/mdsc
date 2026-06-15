@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from cache_utils import ttl_cache
 from db_posh import posh_query, posh_query_one
 
 router = APIRouter(tags=["brazil"])
@@ -205,6 +206,7 @@ def list_order_items(
 # ── summaries ─────────────────────────────────────────────────────────────────
 
 @router.get("/orders/summary")
+@ttl_cache(ttl=20)
 def orders_summary(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -335,6 +337,7 @@ def orders_summary(
 
 
 @router.get("/order-items/summary")
+@ttl_cache(ttl=20)
 def order_items_summary(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -435,6 +438,7 @@ def order_items_summary(
 
 
 @router.get("/customers")
+@ttl_cache(ttl=20)
 def list_customers():
     """Clientes agrupados pelo CNPJ raiz (8 primeiros dígitos), ordenados por valor total de vendas desc."""
     return posh_query(
@@ -455,6 +459,7 @@ def list_customers():
 
 
 @router.get("/customers/filter-options")
+@ttl_cache(ttl=20)
 def customer_filter_options():
     """Valores distintos de canal, estado e cidade para popular filtros do gráfico."""
     channels = posh_query(
@@ -478,6 +483,7 @@ def customer_filter_options():
 
 
 @router.get("/order-items/value-trend")
+@ttl_cache(ttl=20)
 def order_items_value_trend(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -573,6 +579,7 @@ def order_items_value_trend(
 
 
 @router.get("/alert-resolves/by-status")
+@ttl_cache(ttl=20)
 def alert_resolves_by_status(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -634,6 +641,7 @@ def alert_resolves_pending_count():
 
 
 @router.get("/alert-resolves/by-dim")
+@ttl_cache(ttl=20)
 def alert_resolves_by_dim(
     group_by: str = Query(default="name", pattern="^(name|cnpj|state|city|channel)$"),
     from_date: Optional[str] = Query(default=None, alias="from"),
@@ -731,6 +739,7 @@ def alert_resolves_by_dim(
 
 
 @router.get("/orders/by-customer-dim")
+@ttl_cache(ttl=20)
 def orders_by_customer_dim(
     group_by: str = Query(default="channel", pattern="^(channel|state|city)$"),
     from_date: Optional[str] = Query(default=None, alias="from"),
