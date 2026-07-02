@@ -5,7 +5,10 @@ reutilizando as mesmas funções internas do agente.
 """
 
 import io
+import sqlite3
 from datetime import date, timedelta
+
+from allocation_db import ALLOCATION_DB_PATH
 
 
 class TaskContext:
@@ -22,51 +25,32 @@ class TaskContext:
 
     # ── API local ─────────────────────────────────────────────────────────────
 
-    _VALID_PREFIXES = (
-        "/brazil/purchase-orders",
-        "/brazil/order-items",
-        "/brazil/orders/summary",
-        "/brazil/order-items/summary",
-        "/brazil/customers",
-        "/brazil/products",
-        "/alerts",
-    )
+    _VALID_PREFIXES = ("/alerts",)
 
     def sql(self, query: str) -> "list[dict]":
-        """Executa uma query SELECT no PostgreSQL (schema brazil) e retorna lista de dicts.
+        """Executa uma query SELECT no SQLite de alocação e retorna lista de dicts.
 
-        Use quando ctx.api() não cobrir a análise — JOINs, CTEs, agrupamentos customizados.
-        Apenas SELECT é permitido. O search_path é fixado em 'brazil'.
+        Tabelas disponíveis: ka_input_data (dado de entrada) e ka_deal_allocation
+        (resultado computado pela IA). Apenas SELECT é permitido.
 
         Exemplo:
             rows = ctx.sql('''
-                SELECT status::text, COUNT(*) AS total
-                FROM purchase_order
-                WHERE created_at::date = CURRENT_DATE
-                GROUP BY status
+                SELECT key_account_code, COUNT(*) AS total
+                FROM ka_deal_allocation
+                WHERE woi < 10
+                GROUP BY key_account_code
             ''')
             df = pd.DataFrame(rows)
         """
-        import os
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-
         normalized = query.strip().lstrip("(").upper()
         if not normalized.startswith("SELECT"):
             raise ValueError("ctx.sql() aceita apenas queries SELECT.")
 
-        conn = psycopg2.connect(
-            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
-            port=int(os.getenv("POSH_DB_PORT", "5432")),
-            user=os.getenv("POSH_DB_USER", "postgres"),
-            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
-            dbname=os.getenv("POSH_DB_NAME", "postgres"),
-            options="-c search_path=brazil -c default_transaction_read_only=on",
-        )
+        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
+        conn.row_factory = sqlite3.Row
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query)
-                return [dict(r) for r in cur.fetchall()]
+            cur = conn.execute(query)
+            return [dict(r) for r in cur.fetchall()]
         finally:
             conn.close()
 

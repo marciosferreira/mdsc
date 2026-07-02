@@ -2,42 +2,65 @@
 # MFG Control — Dependências
 # =============================================================================
 
-# API
+# API / Web
 fastapi==0.118.0
 uvicorn==0.37.0
-pydantic==2.9.2
-pydantic-settings==2.11.0
-python-multipart==0.0.20
+starlette==0.48.0
+sse-starlette==3.0.2
+python-multipart
 
 # Ambiente
 python-dotenv==1.1.1
 
-# HTTP
+# HTTP / rede
 requests==2.32.3
-httpx==0.27.2
+httpx>=0.28.1
+websockets==16.0
 
-# Google Vertex AI / Gemini
-google-cloud-aiplatform==1.71.1
-vertexai==1.71.1
+# Google / Vertex AI / Gemini
 google-genai==2.8.0
+google-cloud-aiplatform>=1.97.0
+vertexai
+langchain-google-vertexai>=2.0.28
+google-cloud-bigquery==3.41.0
 
 # LangChain / LangGraph (agente IA)
 langchain==0.3.30
 langchain-core==0.3.86
-langchain-google-vertexai==2.0.9
 langgraph==1.0.1
+langgraph-prebuilt==1.0.1
+langgraph-sdk==0.2.15
 langgraph-checkpoint-sqlite==3.0.3
 
-# Análise de dados e geração de gráficos
+# Banco de dados
+SQLAlchemy==2.0.50
+aiosqlite==0.22.1
+sqlite-vec==0.1.9
+
+# Data / Análise
 pandas==2.3.3
 numpy==2.3.3
-matplotlib==3.10.9
-tabulate==0.10.0
 scipy==1.17.1
-fpdf2==2.8.7
 openpyxl==3.1.5
+tabulate==0.10.0
+
+# Visualização
+matplotlib==3.10.9
+pillow==12.2.0
+contourpy
+fonttools
+
+# PDF / Export
+fpdf2==2.8.7
+
+# MCP
+mcp==1.27.2
+
+# Validação
+pydantic>=2.11.0
+pydantic-settings==2.11.0
+jsonschema==4.26.0
 
 # Utilitários
 structlog==25.5.0
 tenacity==9.0.0
-sse-starlette==3.0.2

@@ -25,19 +25,21 @@ Todas as bibliotecas já estão no namespace — qualquer `import` causa erro im
 
 ## Como buscar dados
 
-Tasks agendadas buscam dados **exclusivamente via `ctx.sql()`** — query SELECT direta no PostgreSQL (schema brazil). O retorno é sempre `list[dict]`; converta com `pd.DataFrame(rows)`.
+Tasks agendadas buscam dados **exclusivamente via `ctx.sql()`** — query SELECT direta no SQLite de alocação (tabelas `ka_input_data` e `ka_deal_allocation`). O retorno é sempre `list[dict]`; converta com `pd.DataFrame(rows)`.
 
 ```python
 rows = ctx.sql(f"""
-    SELECT po.status::text, COUNT(*) AS total
-    FROM purchase_order po
-    WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
-    GROUP BY po.status
+    SELECT key_account_code, COUNT(*) AS total
+    FROM ka_deal_allocation
+    WHERE woi < 10
+    GROUP BY key_account_code
 """)
 df = pd.DataFrame(rows)
 ```
 
-> `ctx.api()` existe no namespace mas serve apenas para widgets do dashboard — não use em tasks.
+> `ctx.api()` existe no namespace mas serve apenas para o endpoint `/alerts` (sino de notificações) — não use em tasks de alocação.
+
+`year_month` é confiável em ambas as tabelas; `month_seq` (1/2/3) + `month_status` (`done`/`ongoing`/`next`) também servem para ordenar meses dentro de um quarter.
 
 ---
 
@@ -63,7 +65,7 @@ df = pd.DataFrame(rows)
 
 | Chamada | Retorna |
 |---|---|
-| `ctx.sql('SELECT ...')` | list de dicts via SQL direto no PostgreSQL (schema brazil, só SELECT) |
+| `ctx.sql('SELECT ...')` | list de dicts via SQL direto no SQLite de alocação (só SELECT) |
 | `ctx.today()` | string YYYY-MM-DD com a data atual |
 | `ctx.date_range(days=N)` | `(from_date, to_date)` dos últimos N dias |
 | `ctx.save_chart(fig)` | token `[chart:uuid]` |
@@ -91,13 +93,15 @@ Se `date_range` não estiver definido, usa a janela padrão da frequência:
 
 **Sempre que o usuário especificar um intervalo de análise, defina `date_range` ao criar a tarefa.**
 O task_code usa `from_date`/`to_date` normalmente — o daemon garante os valores corretos.
+Como a granularidade das tabelas de alocação é por quarter/mês (não por data de calendário),
+`from_date`/`to_date` tipicamente servem para rotular o período no título/conteúdo do relatório,
+e os filtros reais de dados usam `quarter`/`month_status`/`month_seq` (ou `year_month`).
 
 | O usuário pediu | `date_range` correto |
 |---|---|
 | "do ano atual" / "do ano" | `ytd` |
 | "do mês" / "do mês atual" | `mtd` |
 | "últimos 30 dias" | `last_30d` |
-| "últimos 7 dias" | `last_7d` |
 | "de hoje" | `today` |
 | "relatório diário" | *(não definir — usa padrão da frequência)* |
 
@@ -119,107 +123,92 @@ O task_code usa `from_date`/`to_date` normalmente — o daemon garante os valore
 
 ```python
 def run(from_date, to_date, ctx):
-    rows = ctx.sql(f"""
+    rows = ctx.sql("""
         SELECT
-            po.created_at::date          AS data,
-            po.status::text              AS status,
-            COUNT(*)                     AS total_pedidos,
-            SUM(oi.value_price_total)    AS valor_total
-        FROM purchase_order po
-        JOIN order_item oi ON oi.order_id = po.id
-        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
-        GROUP BY po.created_at::date, po.status
-        ORDER BY data
+            key_account_code,
+            woi,
+            (allocation_W1 + allocation_W2 + allocation_W3 + allocation_W4 + allocation_W5) AS alocado
+        FROM ka_deal_allocation
+        WHERE month_status IN ('done', 'ongoing')
     """)
 
     df = pd.DataFrame(rows)
     if df.empty:
-        return ctx.generate_pdf('Relatório de Pedidos', '## Sem dados no período.')
+        return ctx.generate_pdf('Relatório de Alocação', '## Sem dados no período.')
 
-    df['data']        = pd.to_datetime(df['data'])
-    df['valor_total'] = df['valor_total'].astype(float)
-
-    por_status = df.groupby('status').agg(
-        pedidos=('total_pedidos', 'sum'),
-        valor=('valor_total', 'sum'),
+    por_ka = df.groupby('key_account_code').agg(
+        alocado=('alocado', 'sum'),
+        woi_medio=('woi', 'mean'),
     ).reset_index()
 
-    por_dia = df.groupby('data')['valor_total'].sum().reset_index()
-
-    total_pedidos = df['total_pedidos'].sum()
-    total_valor   = df['valor_total'].sum()
-    aprovados     = por_status.loc[por_status['status'] == 'APPROVED', 'valor'].sum()
+    total_alocado = df['alocado'].sum()
+    kas_criticos  = df[df['woi'] < 10]['key_account_code'].nunique()
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle(f'Pedidos — {from_date.strftime("%d/%m/%Y")} a {to_date.strftime("%d/%m/%Y")}',
+    fig.suptitle(f'Alocação — {from_date.strftime("%d/%m/%Y")} a {to_date.strftime("%d/%m/%Y")}',
                  fontsize=13, fontweight='bold')
 
     ax1 = axes[0]
-    ax1.plot(por_dia['data'], por_dia['valor_total'], marker='o', color='#3b82f6', linewidth=2)
-    ax1.set_title('Valor Total por Dia')
-    ax1.set_ylabel('R$')
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))
+    ax1.bar(por_ka['key_account_code'], por_ka['alocado'], color='#3b82f6')
+    ax1.set_title('Alocação Total por Key Account')
     plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
-    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'R$ {x:,.0f}'))
 
     ax2 = axes[1]
-    ax2.bar(por_status['status'], por_status['valor'], color='#60a5fa')
-    ax2.set_title('Valor por Status')
-    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'R$ {x:,.0f}'))
+    ax2.bar(por_ka['key_account_code'], por_ka['woi_medio'], color='#f87171')
+    ax2.set_title('WOI Médio por Key Account')
+    plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
 
     plt.tight_layout()
     chart = ctx.save_chart(fig)
 
     linhas = '\n'.join(
-        f"| {r['status']} | {int(r['pedidos'])} | R$ {r['valor']:,.2f} |"
-        for _, r in por_status.iterrows()
+        f"| {r['key_account_code']} | {r['alocado']:,.0f} | {r['woi_medio']:.1f} |"
+        for _, r in por_ka.iterrows()
     )
     conteudo = (
         f"## Resumo\n\n{chart}\n\n"
         f"| Métrica | Valor |\n|---|---|\n"
-        f"| Total de pedidos | {int(total_pedidos)} |\n"
-        f"| Valor total | R$ {total_valor:,.2f} |\n"
-        f"| Valor aprovado | R$ {aprovados:,.2f} |\n\n"
-        f"## Por Status\n\n| Status | Pedidos | Valor |\n|---|---|---|\n{linhas}\n"
+        f"| Total alocado | {total_alocado:,.0f} |\n"
+        f"| KAs com WOI crítico | {kas_criticos} |\n\n"
+        f"## Por Key Account\n\n| KA | Alocado | WOI médio |\n|---|---|---|\n{linhas}\n"
     )
-    return ctx.generate_pdf('Relatório de Pedidos', conteudo)
+    return ctx.generate_pdf('Relatório de Alocação', conteudo)
 ```
 
 ### Planilha Excel — aba única
 
 ```python
 def run(from_date, to_date, ctx):
-    rows = ctx.sql(f"""
-        SELECT po.id, po.status::text, po.created_at::date, c.name AS cliente
-        FROM purchase_order po
-        JOIN customer c ON c.id = po.customer_id
-        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
+    rows = ctx.sql("""
+        SELECT key_account_code, product, quarter, month_seq, woi,
+               allocation_W1, allocation_W2, allocation_W3, allocation_W4, allocation_W5
+        FROM ka_deal_allocation
+        WHERE month_status IN ('done', 'ongoing')
     """)
     df = pd.DataFrame(rows)
-    return ctx.generate_excel(df, 'pedidos')
+    return ctx.generate_excel(df, 'alocacao')
 ```
 
 ### Planilha Excel — múltiplas abas
 
 ```python
 def run(from_date, to_date, ctx):
-    rows_po = ctx.sql(f"""
-        SELECT po.id, po.status::text, po.created_at::date, c.name AS cliente
-        FROM purchase_order po
-        JOIN customer c ON c.id = po.customer_id
-        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
+    rows_input = ctx.sql("""
+        SELECT key_account_code, product, quarter, month_seq, req_qty, woi
+        FROM ka_input_data
+        WHERE month_status IN ('done', 'ongoing')
     """)
-    rows_itens = ctx.sql(f"""
-        SELECT oi.order_id, oi.quantity, oi.value_price_total, oi.product_group::text
-        FROM order_item oi
-        JOIN purchase_order po ON po.id = oi.order_id
-        WHERE po.created_at::date BETWEEN '{from_date}' AND '{to_date}'
+    rows_output = ctx.sql("""
+        SELECT key_account_code, product, quarter, month_seq,
+               allocation_W1, allocation_W2, allocation_W3, allocation_W4, allocation_W5
+        FROM ka_deal_allocation
+        WHERE month_status IN ('done', 'ongoing')
     """)
-    df_po    = pd.DataFrame(rows_po)
-    df_itens = pd.DataFrame(rows_itens)
+    df_input  = pd.DataFrame(rows_input)
+    df_output = pd.DataFrame(rows_output)
     return ctx.generate_excel(
-        {'Pedidos': df_po, 'Itens': df_itens},
-        'pedidos_detalhado',
+        {'Entrada': df_input, 'Alocação': df_output},
+        'alocacao_detalhado',
     )
 ```
 
@@ -228,25 +217,26 @@ def run(from_date, to_date, ctx):
 > Para tarefas que só devem executar (e notificar) quando uma condição for atingida,
 > use os parâmetros `condition_sql`, `condition_operator` e `condition_threshold` ao criar a tarefa.
 > **Não escreva `ctx.notify()` no código** — a notificação é automática quando a condição é atingida.
+> `condition_sql` roda em **dialeto SQLite** — use `date('now')`, nunca `CURRENT_DATE`/`::text`/`TO_CHAR`.
 
 Exemplos de criação via `schedule_task`:
 
 ```python
-# Alerta se inconsistências > 50
-condition_sql = "SELECT COUNT(*) FROM purchase_order WHERE status='INCONSISTENCY' AND created_at::date=CURRENT_DATE"
+# Alerta se KAs com WOI crítico > 10
+condition_sql = "SELECT COUNT(DISTINCT key_account_code) FROM ka_deal_allocation WHERE woi < 10"
 condition_operator = ">"
-condition_threshold = 50
+condition_threshold = 10
 
-# Alerta se não houver vendas hoje
-condition_sql = "SELECT id FROM purchase_order WHERE created_at::date = CURRENT_DATE"
-condition_operator = "is_empty"
+# Alerta se não houver nenhum deal completo no quarter atual
+condition_sql = "SELECT id FROM ka_deal_allocation WHERE deal > 0 AND month_status = 'ongoing' LIMIT 1"
+condition_operator = "is_not_empty"
 
-# Alerta se houver pedido atrasado
-condition_sql = "SELECT id FROM order_item WHERE delivery_week < TO_CHAR(CURRENT_DATE,'IYYY-IW')"
+# Alerta se houver rollback aplicado
+condition_sql = "SELECT id FROM ka_deal_allocation WHERE rollback > 0 LIMIT 1"
 condition_operator = "is_not_empty"
 ```
 
-A notificação automática inclui o detalhe da condição: ex. "Monitor de inconsistências: 75 > 50".
+A notificação automática inclui o detalhe da condição: ex. "Monitor de WOI crítico: 12 > 10".
 
 ---
 
@@ -295,6 +285,14 @@ ax.tick_params(axis='x', rotation=45, ha='right')
 
 # CERTO
 plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+```
+
+```python
+# ERRADO — dialeto Postgres não existe no SQLite de alocação
+rows = ctx.sql("SELECT status::text FROM ka_deal_allocation WHERE created_at::date = CURRENT_DATE")
+
+# CERTO — dialeto SQLite, sem cast, usando as colunas reais da tabela
+rows = ctx.sql("SELECT key_account_code FROM ka_deal_allocation WHERE month_status = 'ongoing'")
 ```
 
 ```python

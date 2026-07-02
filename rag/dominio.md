@@ -1,76 +1,90 @@
-# Domínio de negócio — Brazil Purchase Orders
+# Domínio de negócio — KA Allocation
 
 ## O que é este sistema
 
-Plataforma de gestão de pedidos de compra (purchase orders) para a operação Brazil. Recebe pedidos de clientes via importação de arquivo, processa e classifica cada pedido e seus itens (aprovado, inconsistência, pendente, rejeitado), e fornece visibilidade sobre o pipeline de vendas, volumes por cliente, produto e status.
+Plataforma de análise e explicabilidade da alocação de supply (produto) por Key Account (KA),
+calculada por um algoritmo de IA. O sistema não decide a alocação em si — ele expõe, de forma
+rastreável, como a IA distribuiu o volume disponível entre os clientes estratégicos (KAs) a
+partir de demanda (Request), acordos comerciais (Deal) e capacidade de estoque (Supply).
 
-## Fluxo de um pedido
+## Como a alocação é calculada (waterfall)
 
-1. **Importação** — arquivo de pedido enviado pelo cliente é importado via `file_import`
-2. **Criação do PO** — `purchase_order` criado com status inicial `INCONSISTENCY`
-3. **Validação dos itens** — cada `order_item` é classificado: produto/acessório resolvido ou não
-4. **Resolução** — pedidos com inconsistência podem ser resolvidos via `alert_resolve`
-5. **Status final** — `APPROVED`, `REJECTED` ou mantido em `PENDING`
+A IA processa o volume disponível em 3 etapas sequenciais, cada uma consumindo o que sobrou da anterior:
 
-## Status de purchase_order
+1. **Request** (demanda) — distribuído por ordem de prioridade (Score, ver abaixo)
+2. **Deal** (acordo comercial) — só usa o volume remanescente após o Request
+3. **Retail** — recebe o volume residual final
 
-| Status | Significado |
-|--------|-------------|
-| `APPROVED` | Pedido aprovado e processado com sucesso |
-| `INCONSISTENCY` | Pedido com problemas de validação — aguarda resolução |
-| `PENDING` | Pedido em análise |
-| `REJECTED` | Pedido rejeitado |
+MMICOM (KA especial) não passa pela etapa de Deal — segue só Request/Score. Retail não usa WOI —
+segue só Booked/Entered.
 
-## Status de order_item
+## WOI (Weeks of Inventory) e faixas de risco
 
-Itens individuais do pedido têm seu próprio status, independente do PO.
+```
+woi = (sell_in_lifetime - activations_lifetime) / avg_activations
+```
 
-## Campos de data em purchase_order
+| Faixa | Classificação | Prioridade de alocação |
+| --- | --- | --- |
+| WOI = 0 | Ruptura grave (estoque esgotado) | Máxima |
+| WOI < 10 | Crítico | Alta |
+| 10 ≤ WOI < 15 | Risco médio | Moderada |
+| WOI ≥ 15 | Fora de risco (saudável) | Menor |
 
-| Campo | Significado |
-|-------|-------------|
-| `created_at` | Data/hora de entrada no sistema (importação) — **a data "oficial" do pedido** |
-| `issue_date` | Data de emissão original informada pelo cliente no arquivo |
-| `delivery_month` | Mês de entrega previsto pelo cliente |
+## Score de priorização (0 a 7)
 
-**Para filtros temporais de "pedidos de hoje/esta semana/etc", use `created_at`** — ela representa quando o pedido entrou no sistema. Use `issue_date` apenas quando a pergunta for especificamente sobre a data original informada pelo cliente no arquivo.
+Dentro da etapa de Request, cada KA é classificado num Score que determina a ordem de
+atendimento — Score 0 é atendido primeiro, Score 7 só recebe se ainda sobrar supply:
 
-## Entidades principais
+| Score | Condição | Peso |
+| --- | --- | --- |
+| 0 | MMICOM (sempre) | Ignora WOI/Booked/Entered — 100% do Request |
+| 1 | WOI < 10 | 100% WOI |
+| 2 | 10 ≤ WOI < 15 e Booked > 0 | 50% WOI / 50% Booked |
+| 3 | 10 ≤ WOI < 15, Booked = 0, Entered > 0 | 75% WOI / 25% Entered |
+| 4 | 10 ≤ WOI < 15, sem Booked/Entered | 100% WOI |
+| 5 | WOI ≥ 15 e Booked > 0 | 100% Booked |
+| 6 | WOI ≥ 15, Booked = 0, Entered > 0 | 100% Entered |
+| 7 | Demais casos | Menor prioridade |
 
-### Clientes (`customer`)
-- Identificados por `name` (razão social), `customer_short` (nome abreviado) e `cnpj`
-- Organizados por `channel` (canal de venda) e `state` (estado/UF)
-- Agrupados por `regional`
+## Rollover e Rollback
 
-### Produtos (`product`) e Acessórios (`accessory`)
-- Identificados por `part_number` (único) e `market_name` / `local_market_name`
-- Agrupados por `product_group` (ex: `SMARTPHONE`, `TABLET`, `ACESSÓRIO`)
-- Especificações: `ram`, `rom`, `local_color`, `origin`
+- **Rollover**: demanda não atendida em períodos anteriores, transferida para o período atual —
+  funciona como um incremento de demanda (aumenta o Request).
+- **Rollback**: ajuste negativo aplicado ao Request — reduz a demanda planejada, libera supply.
 
-### Itens de pedido (`order_item`)
-- Cada PO tem 1..N itens
-- Campos principais: `quantity`, `value_price_total`, `product_group`, `delivery_week`
-- Um item pode ser sem produto vinculado (`product_id IS NULL`) — indica inconsistência de mapeamento
+## Glossário
 
-## KPIs e métricas relevantes
+| Termo | Significado |
+| --- | --- |
+| KA | Key Account, cliente estratégico |
+| WOI | Weeks of Inventory — semanas de cobertura de estoque |
+| Rollover | Demanda não atendida transferida para o período atual |
+| Rollback | Ajuste negativo aplicado ao Request |
+| Allocation | Volume distribuído para o KA |
+| Deal | Acordo comercial, definido por quarter |
+| Supply | Volume em estoque disponível para alocação |
+| Booked | Volume já reservado/confirmado comercialmente no quarter |
+| Entered | Volume em intenção de reserva/pedido em andamento |
+| Request | Volume de demanda considerado pela IA |
+| Sell-in | Volume efetivamente faturado |
+
+## KPIs de Health Check
 
 | Métrica | Como calcular |
 |---------|---------------|
-| Total de pedidos | `COUNT(*)` em `purchase_order` |
-| Pedidos aprovados | `COUNT(*) WHERE status = 'APPROVED'` |
-| Taxa de aprovação | `pedidos aprovados / total × 100%` |
-| Pedidos com inconsistência | `COUNT(*) WHERE status = 'INCONSISTENCY'` |
-| Volume por cliente | `COUNT(*)` agrupado por `customer_name` ou `customer_id` |
-| Quantidade total de itens | `SUM(oi.quantity)` em `order_item` |
-| Valor total | `SUM(oi.value_price_total)` em `order_item` |
-| Produtos mais pedidos | `COUNT(oi.id)` ou `SUM(oi.quantity)` agrupado por `product_group` / `part_number` |
-| Tempo de processamento | `AVG(EXTRACT(EPOCH FROM (created_at - issue_date)) / 86400)` em dias (diferença entre entrada no sistema e data do cliente) |
+| Critical WOI | `COUNT(*) WHERE woi < 10` |
+| Complete Request | `COUNT(*) WHERE soma das allocation_W1..5 >= req_qty` |
+| Completed Deals | `COUNT(*) WHERE deal > 0 AND soma das allocation_W1..5 >= deal` |
+| Rollover / Rollback | `COUNT(*) WHERE rollover > 0` / `COUNT(*) WHERE rollback > 0` |
+| Rounded Allocations | `COUNT(*) WHERE allocation_W1 % 10 = 0` |
 
-## Canais de venda
+## Períodos e meses
 
-O campo `customer.channel` identifica o canal. Use `channel::text` nas queries. Os valores existem como enum no banco — use `SELECT DISTINCT channel::text FROM customer` para listar.
+O sistema trabalha com quarters (`FQ1`, `FQ2`, ...) e, dentro de cada quarter, 3 meses
+identificados por `month_seq` (1/2/3), `month_status` (`done`, `ongoing` no quarter atual;
+`next` no próximo quarter) e `year_month` (mês/ano confiável em ambas as tabelas).
 
-## Regiões e estados
-
-`customer.state` contém a UF (sigla do estado brasileiro) como enum — cast: `state::text`.
-`customer.regional` contém a regional comercial como texto livre.
+**Não existe granularidade diária.** `year_month` é sempre o dia 1 do mês — o detalhamento
+dentro do mês é por semana (`allocation_W1..W5`), não por data de calendário. Perguntas sobre
+"alocação de hoje" só fazem sentido em termos de mês/semana corrente, nunca de um dia exato.

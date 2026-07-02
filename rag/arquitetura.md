@@ -1,4 +1,4 @@
-# Arquitetura do sistema de agentes — Brazil Purchase Orders AI
+# Arquitetura do sistema de agentes — KA Allocation AI
 
 O sistema usa um grafo multi-agente LangGraph com três agentes cooperando.
 
@@ -25,19 +25,17 @@ o orquestrador a completar o fluxo.
 
 Ativado pelo orquestrador via `consultar_analista()`. Executa análises em três etapas obrigatórias:
 
-1. `read_skill('analise_sql_livre.md')` — lê schema, relacionamentos e regras SQL
-2. `executar_sql(query, chave)` — executa SELECT no PostgreSQL e injeta DataFrame no ambiente
+1. `read_skill('analise_alocacao.md')` — lê schema, relacionamentos e regras de negócio
+2. `executar_sql_alocacao(query, chave)` — executa SELECT no SQLite de alocação e injeta DataFrame no ambiente
 3. `analisar_dataframe(script)` — processa com pandas, gera gráfico (`result = fig`) ou tabela (`result = df`)
 
 O ambiente persiste entre chamadas na mesma sessão (estilo Jupyter) — DataFrames criados em um passo ficam disponíveis nos seguintes.
-
-**Nunca usa `chamar_api` para análises** — toda consulta vai direto ao banco via SQL.
 
 ### Skill do sub-agente
 
 | Arquivo | O que cobre |
 | --- | --- |
-| `analise_sql_livre.md` | Única skill de análise — toda pergunta de dados, simples ou complexa |
+| `analise_alocacao.md` | Única skill de análise — toda pergunta sobre alocação, WOI, Score, Deal, Health Check |
 
 ## Sub-agente de scheduling
 
@@ -54,8 +52,8 @@ O objeto `ctx` injetado no `run()` oferece:
 
 | Método | O que faz |
 | --- | --- |
-| `ctx.api(url)` | Chama um endpoint REST e retorna os dados como list |
-| `ctx.sql(query)` | Executa SELECT no PostgreSQL e retorna list de dicts |
+| `ctx.api(url)` | Chama o endpoint `/alerts` (sino de notificações) e retorna os dados como list |
+| `ctx.sql(query)` | Executa SELECT no SQLite de alocação (`ka_input_data`, `ka_deal_allocation`) e retorna list de dicts |
 | `ctx.today()` | Retorna a data atual no formato `YYYY-MM-DD` |
 | `ctx.date_range(days=N)` | Retorna `(from_date, to_date)` para os últimos N dias |
 | `ctx.save_chart(fig)` | Salva figura matplotlib e retorna token `[chart:uuid]` |

@@ -1000,164 +1000,22 @@
   </div>
   <div class="kpi-row" id="kpiRow"></div>
 
-  <!-- Row 1: Orders by month + Pedidos por status -->
+  <!-- Row 1: Alocação por Key Account + WOI por faixa de risco -->
   <div class="g2">
     <div class="card">
       <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--cyan)"></div>Pedidos por mês</div>
+        <div class="card-title"><div class="ctdot" style="background:var(--cyan)"></div>Alocação por Key Account</div>
       </div>
       <div class="card-body">
-        <div class="legend">
-          <div class="leg"><div class="leg-sq" style="background:rgba(96,165,250,.75)"></div>Total pedidos</div>
-          <div class="leg"><div class="leg-sq" style="background:rgba(52,211,153,.75)"></div>Clientes únicos</div>
-        </div>
-        <div class="ch-wrap" style="height:230px"><canvas id="ordersMonthChart"></canvas></div>
+        <div class="ch-wrap" style="height:230px"><canvas id="allocByKaChart"></canvas></div>
       </div>
     </div>
     <div class="card">
       <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--green)"></div>Pedidos por status</div>
+        <div class="card-title"><div class="ctdot" style="background:var(--green)"></div>WOI por Faixa de Risco</div>
       </div>
       <div class="card-body">
-        <div class="ch-wrap" style="height:230px"><canvas id="ordersByStatusChart"></canvas></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 2: Top customers + Pedidos por dimensão de cliente -->
-  <div class="g2">
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--blue)"></div>Pedidos por Cliente</div>
-        <div class="card-controls">
-          <div class="tc-seg">
-            <button class="tc-seg-btn active" data-metric="total_orders" onclick="setTopCustomersMetric(this)">Pedidos</button>
-            <button class="tc-seg-btn" data-metric="total_items" onclick="setTopCustomersMetric(this)">Itens</button>
-            <button class="tc-seg-btn" data-metric="total_value" onclick="setTopCustomersMetric(this)">Valor</button>
-          </div>
-          <div class="tc-seg">
-            <button class="tc-grp-btn active" data-groupby="name" onclick="setTopCustomersGroupBy(this)">Nome</button>
-            <button class="tc-grp-btn" data-groupby="cnpj" onclick="setTopCustomersGroupBy(this)">CNPJ</button>
-          </div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div id="topCustomersList" style="height:220px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--purple)"></div>Pedidos por dimensão de canal e local</div>
-        <div class="card-controls">
-          <div class="tc-seg" id="custDimMetricSeg">
-            <button class="tc-seg-btn active" data-metric="total_orders" onclick="setCustDimMetric(this)">Pedidos</button>
-            <button class="tc-seg-btn" data-metric="total_items" onclick="setCustDimMetric(this)">Itens</button>
-            <button class="tc-seg-btn" data-metric="total_value" onclick="setCustDimMetric(this)">Valor</button>
-          </div>
-          <div class="tc-seg" id="custDimGrpSeg">
-            <button class="tc-grp-btn active" data-groupby="channel" onclick="setCustDimGroupBy(this)">Canal</button>
-            <button class="tc-grp-btn" data-groupby="state" onclick="setCustDimGroupBy(this)">Estado</button>
-            <button class="tc-grp-btn" data-groupby="city" onclick="setCustDimGroupBy(this)">Cidade</button>
-          </div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="custDimChart"></canvas></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 3: Value trend + Error ratio -->
-  <div class="g2">
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--purple)"></div>Valor vendido ao longo do tempo</div>
-        <div class="card-controls">
-          <select class="cf-sel" id="valueTrendGranSel" onchange="setValueTrendGranularity(this)">
-            <option value="day">Dia</option>
-            <option value="week">Semana</option>
-            <option value="month" selected>Mês</option>
-            <option value="year">Ano</option>
-          </select>
-          <select class="cf-sel" id="valueTrendCustomerSel" onchange="setValueTrendCustomer(this)" style="max-width:160px">
-            <option value="">Todos os clientes</option>
-          </select>
-          <select class="cf-sel" id="valueTrendChannelSel" onchange="setValueTrendChannel(this)">
-            <option value="">Canal</option>
-          </select>
-          <select class="cf-sel" id="valueTrendStateSel" onchange="setValueTrendState(this)">
-            <option value="">Estado</option>
-          </select>
-          <select class="cf-sel" id="valueTrendCitySel" onchange="setValueTrendCity(this)">
-            <option value="">Cidade</option>
-          </select>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="valueTrendChart"></canvas></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--red)"></div>Itens com inconsistência vs sem inconsistência</div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="errorRatioChart"></canvas></div>
-        <div id="errorRatioStats" style="display:flex;justify-content:space-around;padding:8px 4px 2px;border-top:1px solid var(--border);margin-top:6px;gap:4px">
-          <div style="text-align:center;flex:1" title="Quantidade de pedidos do período que possuem pelo menos um item com inconsistência (erro identificado).">
-            <div id="erStatOrders" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:help;border-bottom:1px dotted var(--muted)">pedidos afetados</div>
-          </div>
-          <div style="text-align:center;flex:1" title="Percentual de pedidos do período que possuem pelo menos um item com inconsistência, em relação ao total de pedidos.">
-            <div id="erStatPct" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:help;border-bottom:1px dotted var(--muted)">% dos pedidos</div>
-          </div>
-          <div style="text-align:center;flex:1" title="Número médio de itens com inconsistência em cada pedido afetado.">
-            <div id="erStatAvg" style="font-size:18px;font-weight:700;color:var(--red);font-family:'JetBrains Mono',monospace">—</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:help;border-bottom:1px dotted var(--muted)">itens/pedido afetado</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 4: Top products + Alertas resolvidos por cliente -->
-  <div class="g2">
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--cyan)"></div>Produtos — unidades pedidas <span style="font-size:10px;color:var(--txt3);font-weight:400;">(todo o período)</span></div>
-      </div>
-      <div class="card-body">
-        <div id="topProductsList" style="height:220px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--orange)"></div>Alertas por cliente</div>
-        <div class="card-controls">
-          <div class="tc-seg" id="alertDimGrpSeg">
-            <button class="tc-grp-btn active" data-groupby="name" onclick="setAlertDimGroupBy(this)">Nome</button>
-            <button class="tc-grp-btn" data-groupby="cnpj" onclick="setAlertDimGroupBy(this)">CNPJ</button>
-            <button class="tc-grp-btn" data-groupby="state" onclick="setAlertDimGroupBy(this)">Estado</button>
-            <button class="tc-grp-btn" data-groupby="city" onclick="setAlertDimGroupBy(this)">Cidade</button>
-            <button class="tc-grp-btn" data-groupby="channel" onclick="setAlertDimGroupBy(this)">Canal</button>
-          </div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div id="alertDimList" style="height:230px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 5: Alertas resolvidos por status -->
-  <div class="g2">
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title"><div class="ctdot" style="background:var(--orange)"></div>Alertas por status</div>
-      </div>
-      <div class="card-body">
-        <div class="ch-wrap" style="height:220px"><canvas id="alertResolveStatusChart"></canvas></div>
+        <div class="ch-wrap" style="height:230px"><canvas id="woiBandsChart"></canvas></div>
       </div>
     </div>
   </div>
@@ -1378,44 +1236,6 @@ function onDateRangeChange() {
   }
 }
 
-function brazilDateParam() {
-  const range = document.getElementById('kpiFromSel').value;
-  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const today = new Date();
-  if (!range) return '';
-  if (range === 'today') {
-    const f = fmt(today);
-    return `from=${f}&to=${f}`;
-  }
-  if (range === 'week') {
-    const mon = new Date(today);
-    mon.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
-    return `from=${fmt(mon)}&to=${fmt(today)}`;
-  }
-  if (range === 'month') {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return `from=${fmt(from)}&to=${fmt(today)}`;
-  }
-  if (range === 'year') {
-    const from = new Date(today.getFullYear(), 0, 1);
-    return `from=${fmt(from)}&to=${fmt(today)}`;
-  }
-  if (range === 'lastyear') {
-    const from = new Date(today.getFullYear() - 1, 0, 1);
-    const to   = new Date(today.getFullYear() - 1, 11, 31);
-    return `from=${fmt(from)}&to=${fmt(to)}`;
-  }
-  if (range === 'custom') {
-    const from = document.getElementById('customFrom').value;
-    const to   = document.getElementById('customTo').value;
-    if (!from && !to) return '';
-    const parts = [];
-    if (from) parts.push(`from=${from}`);
-    if (to)   parts.push(`to=${to}`);
-    return parts.join('&');
-  }
-  return '';
-}
 
 const PALETTE = [
   'rgba(96,165,250,.8)', 'rgba(52,211,153,.8)', 'rgba(251,191,36,.8)',
@@ -1426,22 +1246,14 @@ const PALETTE = [
 
 // ── PER-CHART REFRESH FUNCTIONS ────────────────────────
 
-async function refreshKPIs(ordSum, itmSum, alertPending) {
+async function refreshKPIs(alloc) {
   try {
-    const totalOrders  = ordSum.by_status.reduce((a,r) => a + Number(r.total), 0);
-    const totalItems   = itmSum.by_status.reduce((a,r) => a + Number(r.total_items), 0);
-    const totalQty     = itmSum.by_status.reduce((a,r) => a + Number(r.total_qty), 0);
-    const totalValue   = itmSum.by_status.reduce((a,r) => a + Number(r.total_value), 0);
-    const uniqueCust   = Number(ordSum.unique_customers_total ?? 0);
-    const pendingAlerts = Number((alertPending?.[0]?.total) ?? 0);
-    const fmtVal = v => 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0});
+    const kd = alloc.kpis;
     const kpis = [
-      { lbl:'Total de pedidos', val: totalOrders.toLocaleString('pt-BR'), sub:'purchase orders', kc:'var(--cyan)' },
-      { lbl:'Itens de pedido', val: totalItems.toLocaleString('pt-BR'), sub:'order items', kc:'var(--blue)' },
-      { lbl:'Quantidade total', val: totalQty.toLocaleString('pt-BR'), sub:'unidades', kc:'var(--green)' },
-      { lbl:'Valor total', val: fmtVal(totalValue), sub:'valor dos itens', kc:'var(--yellow)' },
-      { lbl:'Clientes únicos', val: uniqueCust.toLocaleString('pt-BR'), sub:'com pedidos no período', kc:'var(--purple)' },
-      { lbl:'Alerts pendentes', val: pendingAlerts.toLocaleString('pt-BR'), sub:'aguardando resolução', kc:'var(--red)' },
+      { lbl:'Total alocado', val: Number(kd.total_alocado).toLocaleString('pt-BR'), sub:'unidades no quarter', kc:'var(--cyan)' },
+      { lbl:'Key Accounts', val: Number(kd.total_kas).toLocaleString('pt-BR'), sub:'com alocação no período', kc:'var(--blue)' },
+      { lbl:'KAs com WOI crítico', val: Number(kd.kas_criticos).toLocaleString('pt-BR'), sub:'woi < 10', kc:'var(--red)' },
+      { lbl:'Deals completos', val: Number(kd.deals_completos).toLocaleString('pt-BR'), sub:'atendidos integralmente', kc:'var(--green)' },
     ];
     document.getElementById('kpiRow').innerHTML = kpis.map(k => `
       <div class="kpi" style="--kc:${k.kc}">
@@ -1452,45 +1264,33 @@ async function refreshKPIs(ordSum, itmSum, alertPending) {
   } catch(e) { console.error('KPIs:', e); }
 }
 
-async function refreshOrdersMonth(ordSum) {
+async function refreshAllocByKa(alloc) {
   try {
-    const d = ordSum.by_month;
-    const granularity = ordSum.period_granularity || 'month';
-    const labels = d.map(r => r.month);
-    const n = labels.length;
-    const titleEl = document.querySelector('#ordersMonthChart')
-      ?.closest('.card')?.querySelector('.card-title');
-    if (titleEl) titleEl.innerHTML =
-      `<div class="ctdot" style="background:var(--cyan)"></div>Pedidos por ${granularity === 'day' ? 'dia' : 'mês'}`;
-    mkChart('ordersMonthChart', {
-      data: { labels, datasets: [
-        { type:'bar', label:'Pedidos', data: d.map(r=>Number(r.total_orders)), backgroundColor:'rgba(96,165,250,.65)', borderRadius:3, order:2 },
-        { type:'line', label:'Clientes únicos', data: d.map(r=>Number(r.unique_customers)), borderColor:'#34d399', borderWidth:2, pointRadius:n>15?0:3, fill:false, tension:.4, order:1, yAxisID:'y1' },
-      ]},
-      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{display:false}, tooltip:tip() },
-        scales:{
-          x: scX({ticks:{...scX().ticks, maxRotation:rot(n)}}),
-          y: scY({min:0}),
-          y1:{ position:'right', grid:{display:false}, ticks:{color:'#34d399', font:{size:10,family:'JetBrains Mono'}} }
-        }
+    const d = alloc.by_key_account || [];
+    const labels = d.map(r => r.key_account_code);
+    mkChart('allocByKaChart', {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Alocado', data: d.map(r => Number(r.total_alocado)), backgroundColor: PALETTE, borderRadius: 3, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { ...tip(), callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString('pt-BR')}` } } },
+        scales: { x: scX(), y: scY({ min: 0 }) }
       }
     });
-  } catch(e) { console.error('ordersMonthChart:', e); }
+  } catch(e) { console.error('allocByKaChart:', e); }
 }
 
-
-async function refreshOrdersByStatus(ordSum) {
+async function refreshWoiBands(alloc) {
   try {
     const COLORS = {
-      PROCESSED:    'rgba(52,211,153,.85)',
-      REJECTED:     'rgba(248,113,113,.85)',
-      INCONSISTENCY:'rgba(251,191,36,.85)',
+      'Crítico (<10)':   'rgba(248,113,113,.85)',
+      'Médio (10-15)':   'rgba(251,191,36,.85)',
+      'Saudável (>=15)': 'rgba(52,211,153,.85)',
     };
-    const d = ordSum.by_status || [];
-    const labels = d.map(r => r.status);
+    const d = alloc.woi_bands || [];
+    const labels = d.map(r => r.band);
     const colors = labels.map(l => COLORS[l] || 'rgba(100,116,139,.7)');
-    mkChart('ordersByStatusChart', {
+    mkChart('woiBandsChart', {
       type: 'doughnut',
       data: { labels, datasets: [{ data: d.map(r => Number(r.total)), backgroundColor: colors, borderWidth: 0, hoverOffset: 8 }] },
       options: {
@@ -1501,495 +1301,7 @@ async function refreshOrdersByStatus(ordSum) {
         }
       }
     });
-  } catch(e) { console.error('ordersByStatusChart:', e); }
-}
-
-let _topCustomersData = [];
-let _topCustomersMetric = 'total_orders';
-let _topCustomersGroupBy = 'name';
-let _topCustomersPage = 0;
-const TC_PAGE_SIZE = 8;
-
-function setTopCustomersMetric(btn) {
-  _topCustomersMetric = btn.dataset.metric;
-  _topCustomersPage = 0;
-  document.querySelectorAll('.tc-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
-  _renderTopCustomers();
-}
-
-function setTopCustomersGroupBy(btn) {
-  _topCustomersGroupBy = btn.dataset.groupby;
-  _topCustomersPage = 0;
-  document.querySelectorAll('.tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
-  const dateParam = brazilDateParam();
-  const parts = dateParam ? [dateParam, `group_by=${_topCustomersGroupBy}`] : [`group_by=${_topCustomersGroupBy}`];
-  api(`/brazil/orders/summary?${parts.join('&')}`)
-    .then(ordSum => { _topCustomersData = ordSum.top_customers || []; _topCustomersPage = 0; _renderTopCustomers(); })
-    .catch(e => console.error('topCustomers groupBy:', e));
-}
-
-function _renderTopCustomers() {
-  const el = document.getElementById('topCustomersList');
-  if (!el) return;
-  const metric = _topCustomersMetric;
-  const isCurrency = metric === 'total_value';
-  const sorted = [..._topCustomersData].sort((a,b) => Number(b[metric]) - Number(a[metric]));
-  const total = sorted.length;
-  const maxPages = Math.ceil(total / TC_PAGE_SIZE);
-  const start = _topCustomersPage * TC_PAGE_SIZE;
-  const page = sorted.slice(start, start + TC_PAGE_SIZE);
-  const maxVal = Number(sorted[0]?.[metric] || 1);
-
-  const metricLabels = { total_orders:'Pedidos', total_items:'Itens', total_value:'Valor' };
-  const fmtVal = v => isCurrency
-    ? 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
-    : Number(v).toLocaleString('pt-BR');
-
-  const rows = page.map((r, i) => {
-    const rank = start + i + 1;
-    const cnpj = r.customer_cnpj || '';
-    const name = r.customer || '';
-    const label = (_topCustomersGroupBy === 'cnpj' && cnpj) ? `${cnpj} (${name})` : name;
-    const val = Number(r[metric]);
-    const pct = maxVal > 0 ? (val / maxVal * 100).toFixed(1) : 0;
-    const cP = Number(r.cnt_processed || 0);
-    const cI = Number(r.cnt_inconsistency || 0);
-    const cR = Number(r.cnt_rejected || 0);
-    const bdg = (cnt, color, title) => cnt > 0
-      ? `<span class="tc-badge" style="color:${color};background:${color}22" title="${title}: ${cnt}">${cnt}</span>`
-      : '';
-    const badges = bdg(cP,'#22c55e','Processados') + bdg(cI,'#eab308','Inconsistência') + bdg(cR,'#ef4444','Rejeitados');
-    return `<div class="tc-row">
-      <span class="tc-rank">${rank}</span>
-      <div class="tc-name-cell">
-        <span class="tc-name" title="${label}">${label}</span>
-        <div class="tc-badges">${badges}</div>
-      </div>
-      <div class="tc-bar-wrap">
-        <div class="tc-bar-bg"><div class="tc-bar-fill" style="width:${pct}%"></div></div>
-        <span class="tc-val">${fmtVal(val)}</span>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="tc-list">${rows}</div>
-    <div class="tc-pager">
-      <button class="tc-pager-btn" onclick="_tcPage(-1)" ${_topCustomersPage === 0 ? 'disabled' : ''}>◀ Anterior</button>
-      <span class="tc-pager-info">${start+1}–${Math.min(start+TC_PAGE_SIZE,total)} de ${total}</span>
-      <button class="tc-pager-btn" onclick="_tcPage(1)" ${_topCustomersPage >= maxPages-1 ? 'disabled' : ''}>Próximo ▶</button>
-    </div>`;
-}
-
-function _tcPage(dir) {
-  const total = _topCustomersData.length;
-  const maxPages = Math.ceil(total / TC_PAGE_SIZE);
-  _topCustomersPage = Math.max(0, Math.min(_topCustomersPage + dir, maxPages - 1));
-  _renderTopCustomers();
-}
-
-async function refreshTopCustomers(ordSum) {
-  try {
-    _topCustomersData = ordSum.top_customers || [];
-    _topCustomersPage = 0;
-    _renderTopCustomers();
-  } catch(e) { console.error('topCustomersList:', e); }
-}
-
-// ── Alertas resolvidos por cliente ────────────────────────────────────────────
-const AD_COLORS = [
-  'rgba(248,113,113,.85)',
-  'rgba(251,191,36,.85)',
-  'rgba(52,211,153,.85)',
-  'rgba(96,165,250,.85)',
-  'rgba(167,139,250,.85)',
-  'rgba(251,146,60,.85)',
-  'rgba(34,211,238,.85)',
-];
-let _alertDimGroupBy = 'name';
-let _alertDimPage    = 0;
-let _alertDimData    = [];
-const AD_PAGE_SIZE   = 8;
-
-function setAlertDimGroupBy(btn) {
-  _alertDimGroupBy = btn.dataset.groupby;
-  _alertDimPage = 0;
-  document.querySelectorAll('#alertDimGrpSeg .tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
-  _loadAlertDim();
-}
-
-function _loadAlertDim() {
-  const dateParam = brazilDateParam();
-  const parts = [`group_by=${_alertDimGroupBy}`];
-  if (dateParam) parts.unshift(dateParam);
-  api(`/brazil/alert-resolves/by-dim?${parts.join('&')}`)
-    .then(rows => { _alertDimData = _aggregateAlertDim(rows); _alertDimPage = 0; _renderAlertDim(); })
-    .catch(e => console.error('alertDimList:', e));
-}
-
-function _aggregateAlertDim(rows) {
-  const map = new Map();
-  for (const r of rows) {
-    const key = (r.label || '') + '|||' + (r.secondary || '');
-    if (!map.has(key)) map.set(key, {label: r.label || '', secondary: r.secondary || '', total: 0, breakdown: {}});
-    const e = map.get(key);
-    e.total += Number(r.cnt);
-    e.breakdown[r.error_type] = (e.breakdown[r.error_type] || 0) + Number(r.cnt);
-  }
-  return [...map.values()].sort((a, b) => b.total - a.total);
-}
-
-function _renderAlertDim() {
-  const el = document.getElementById('alertDimList');
-  if (!el) return;
-  const data     = _alertDimData;
-  const total    = data.length;
-  const maxPages = Math.ceil(total / AD_PAGE_SIZE);
-  const start    = _alertDimPage * AD_PAGE_SIZE;
-  const page     = data.slice(start, start + AD_PAGE_SIZE);
-  const allTypes = [...new Set(data.flatMap(r => Object.keys(r.breakdown)))].sort();
-
-  const rows = page.map((r, i) => {
-    const rank = start + i + 1;
-    const tooltip = r.secondary ? `${r.label} — ${r.secondary}` : r.label;
-    const subLbl  = r.secondary
-      ? `<span style="font-size:8px;color:var(--txt3);margin-left:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.secondary}</span>`
-      : '';
-    const segments = allTypes
-      .filter(t => r.breakdown[t] > 0)
-      .map(t => {
-        const color = AD_COLORS[allTypes.indexOf(t) % AD_COLORS.length];
-        return `<div style="flex:${r.breakdown[t]};background:${color};height:100%;" title="${t}: ${r.breakdown[t]}"></div>`;
-      }).join('');
-
-    const badges = allTypes
-      .filter(t => r.breakdown[t] > 0)
-      .map(t => {
-        const color = AD_COLORS[allTypes.indexOf(t) % AD_COLORS.length];
-        return `<span class="tc-badge" style="color:${color};background:${color}22" title="${t}">${r.breakdown[t]}</span>`;
-      }).join('');
-
-    return `<div class="tc-row">
-      <span class="tc-rank">${rank}</span>
-      <div class="tc-name-cell" style="min-width:0;overflow:hidden;">
-        <span class="tc-name" title="${tooltip}" style="flex-shrink:1;">${r.label}</span>${subLbl}
-        <div class="tc-badges">${badges}</div>
-      </div>
-      <div class="tc-bar-wrap">
-        <div class="tc-bar-bg" style="display:flex;overflow:hidden;">${segments}</div>
-        <span class="tc-val">${r.total}</span>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="tc-list">${rows}</div>
-    <div class="tc-pager">
-      <button class="tc-pager-btn" onclick="_adPage(-1)" ${_alertDimPage === 0 ? 'disabled' : ''}>◀ Anterior</button>
-      <span class="tc-pager-info">${start + 1}–${Math.min(start + AD_PAGE_SIZE, total)} de ${total}</span>
-      <button class="tc-pager-btn" onclick="_adPage(1)" ${_alertDimPage >= maxPages - 1 ? 'disabled' : ''}>Próximo ▶</button>
-    </div>`;
-}
-
-function _adPage(dir) {
-  const maxPages = Math.ceil(_alertDimData.length / AD_PAGE_SIZE);
-  _alertDimPage = Math.max(0, Math.min(_alertDimPage + dir, maxPages - 1));
-  _renderAlertDim();
-}
-
-async function refreshAlertDim() {
-  _loadAlertDim();
-}
-
-let _custDimMetric  = 'total_orders';
-let _custDimGroupBy = 'channel';
-
-function setCustDimMetric(btn) {
-  _custDimMetric = btn.dataset.metric;
-  document.querySelectorAll('#custDimMetricSeg .tc-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
-  _loadCustDim();
-}
-
-function setCustDimGroupBy(btn) {
-  _custDimGroupBy = btn.dataset.groupby;
-  document.querySelectorAll('#custDimGrpSeg .tc-grp-btn').forEach(b => b.classList.toggle('active', b === btn));
-  _loadCustDim();
-}
-
-function _loadCustDim() {
-  const dateParam = brazilDateParam();
-  const parts = [`group_by=${_custDimGroupBy}`];
-  if (dateParam) parts.unshift(dateParam);
-  api(`/brazil/orders/by-customer-dim?${parts.join('&')}`)
-    .then(data => _renderCustDim(data))
-    .catch(e => console.error('custDimChart:', e));
-}
-
-function _renderCustDim(data) {
-  const d = (data || []).slice(0, 20);
-  const isCurrency = _custDimMetric === 'total_value';
-  const labels = d.map(r => r.label || 'N/A');
-  const values = d.map(r => Number(r[_custDimMetric]));
-  const metricLabel = { total_orders: 'Pedidos', total_items: 'Itens', total_value: 'Valor (R$)' }[_custDimMetric];
-  mkChart('custDimChart', {
-    type: 'bar',
-    data: { labels, datasets: [{ label: metricLabel, data: values, backgroundColor: PALETTE.map((c,i) => PALETTE[i % PALETTE.length]), borderRadius: 3, borderSkipped: false }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-      plugins: {
-        legend: { display: false },
-        tooltip: { ...tip(), callbacks: { label: ctx => isCurrency
-          ? ' R$ ' + ctx.parsed.x.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-          : ' ' + ctx.parsed.x.toLocaleString('pt-BR') + (metricLabel === 'Itens' ? ' un' : '')
-        }}
-      },
-      scales: {
-        x: scX({ min: 0 }),
-        y: { grid: { display: false }, ticks: { color: tc, font: { size: 10, family: 'JetBrains Mono' } } }
-      }
-    }
-  });
-}
-
-async function refreshCustDim() {
-  _loadCustDim();
-}
-
-async function refreshErrorRatio(itmSum) {
-  try {
-    const r = itmSum.error_ratio || { with_error: 0, without_error: 0, total_orders: 0, orders_with_inconsistency: 0, avg_items_per_affected_order: 0 };
-    const withErr    = Number(r.with_error);
-    const withoutErr = Number(r.without_error);
-    const total      = withErr + withoutErr;
-    const pct        = total > 0 ? ((withErr / total) * 100).toFixed(1) : '0.0';
-    mkChart('errorRatioChart', {
-      type: 'doughnut',
-      data: {
-        labels: [`Com inconsistência (${pct}%)`, 'Sem inconsistência'],
-        datasets: [{ data: [withErr, withoutErr], backgroundColor: ['rgba(248,113,113,.85)', 'rgba(52,211,153,.75)'], borderWidth: 0, hoverOffset: 8 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, cutout: '60%',
-        plugins: {
-          legend: { display: true, position: 'bottom', labels: { color: tc, font: { size: 10, family: 'JetBrains Mono' }, boxWidth: 10, padding: 10 } },
-          tooltip: { ...tip(), callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toLocaleString('pt-BR')}` } }
-        }
-      }
-    });
-    const totalOrders = Number(r.total_orders);
-    const affOrders   = Number(r.orders_with_inconsistency);
-    const orderPct    = totalOrders > 0 ? ((affOrders / totalOrders) * 100).toFixed(1) : '0.0';
-    const avg         = r.avg_items_per_affected_order != null ? Number(r.avg_items_per_affected_order).toFixed(1) : '—';
-    document.getElementById('erStatOrders').textContent = affOrders.toLocaleString('pt-BR');
-    document.getElementById('erStatPct').textContent    = `${orderPct}%`;
-    document.getElementById('erStatAvg').textContent    = avg;
-  } catch(e) { console.error('errorRatioChart:', e); }
-}
-
-let _valueTrendCnpjRoot   = '';
-let _valueTrendGranularity = 'month';
-let _valueTrendChannel    = '';
-let _valueTrendState      = '';
-let _valueTrendCity       = '';
-
-function setValueTrendCustomer(sel)    { _valueTrendCnpjRoot    = sel.value; _loadValueTrend(); }
-function setValueTrendGranularity(sel) { _valueTrendGranularity = sel.value; _loadValueTrend(); }
-function setValueTrendChannel(sel)     { _valueTrendChannel     = sel.value; _loadValueTrend(); }
-function setValueTrendState(sel)       { _valueTrendState       = sel.value; _loadValueTrend(); }
-function setValueTrendCity(sel)        { _valueTrendCity        = sel.value; _loadValueTrend(); }
-
-async function loadValueTrendCustomers() {
-  try {
-    const customers = await api('/brazil/customers');
-    const sel = document.getElementById('valueTrendCustomerSel');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">Todos os clientes</option>' +
-      customers.map(c => `<option value="${c.cnpj_root}">${c.name}</option>`).join('');
-    if (cur) sel.value = cur;
-  } catch(e) { console.error('loadValueTrendCustomers:', e); }
-}
-
-async function loadValueTrendFilterOptions() {
-  try {
-    const opts = await api('/brazil/customers/filter-options');
-    const mk = (vals, placeholder) =>
-      `<option value="">${placeholder}</option>` +
-      vals.map(v => `<option value="${v}">${v}</option>`).join('');
-    document.getElementById('valueTrendChannelSel').innerHTML = mk(opts.channels, 'Canal');
-    document.getElementById('valueTrendStateSel').innerHTML   = mk(opts.states,   'Estado');
-    document.getElementById('valueTrendCitySel').innerHTML    = mk(opts.cities,   'Cidade');
-  } catch(e) { console.error('loadValueTrendFilterOptions:', e); }
-}
-
-function _valueTrendRangeDays() {
-  const range = document.getElementById('kpiFromSel').value;
-  if (!range) return Infinity;
-  if (range === 'today') return 1;
-  if (range === 'week')  return 7;
-  if (range === 'month') return 31;
-  if (range === 'year' || range === 'lastyear') return 365;
-  if (range === 'custom') {
-    const from = document.getElementById('customFrom').value;
-    const to   = document.getElementById('customTo').value;
-    if (from && to) return Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
-  }
-  return Infinity;
-}
-
-function _syncValueTrendGranOptions() {
-  const sel     = document.getElementById('valueTrendGranSel');
-  const dayOpt  = sel.querySelector('option[value="day"]');
-  const tooLong = _valueTrendRangeDays() > 31;
-  dayOpt.disabled = tooLong;
-  if (tooLong && _valueTrendGranularity === 'day') {
-    _valueTrendGranularity = 'week';
-    sel.value = 'week';
-  }
-}
-
-function _loadValueTrend() {
-  _syncValueTrendGranOptions();
-  const dateParam = brazilDateParam();
-  const parts = [`granularity=${_valueTrendGranularity}`];
-  if (dateParam) parts.unshift(dateParam);
-  if (_valueTrendCnpjRoot) parts.push(`cnpj_root=${encodeURIComponent(_valueTrendCnpjRoot)}`);
-  if (_valueTrendChannel)  parts.push(`channel=${encodeURIComponent(_valueTrendChannel)}`);
-  if (_valueTrendState)    parts.push(`state=${encodeURIComponent(_valueTrendState)}`);
-  if (_valueTrendCity)     parts.push(`city=${encodeURIComponent(_valueTrendCity)}`);
-  api(`/brazil/order-items/value-trend?${parts.join('&')}`)
-    .then(data => _renderValueTrend(data))
-    .catch(e => console.error('valueTrendChart:', e));
-}
-
-function _renderValueTrend(data) {
-  const labels = data.labels || [];
-  const s = (data.series || [])[0];
-  if (!s) return;
-  const fmtVal = v => 'R$ ' + (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}));
-  mkChart('valueTrendChart', {
-    type: 'line',
-    data: { labels, datasets: [{
-      label: s.name,
-      data: s.data,
-      borderColor: '#f97316',
-      backgroundColor: 'rgba(249,115,22,0.08)',
-      borderWidth: 2,
-      pointRadius: labels.length > 20 ? 0 : 3,
-      pointHoverRadius: 5,
-      fill: true,
-      tension: 0.3,
-    }]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: { ...tip(), callbacks: { label: ctx => ` ${s.name}: ${fmtVal(ctx.parsed.y)}` } },
-      },
-      scales: {
-        x: scX(),
-        y: scY({ min: 0, ticks: { color: tc, font: { size: 10, family: 'JetBrains Mono' }, callback: v => fmtVal(v) } }),
-      }
-    }
-  });
-}
-
-async function refreshValueTrend() {
-  _loadValueTrend();
-}
-
-async function refreshAlertResolveStatus(data) {
-  try {
-    const PALETTE_ARS = [
-      'rgba(248,113,113,.85)',
-      'rgba(251,191,36,.85)',
-      'rgba(96,165,250,.85)',
-      'rgba(52,211,153,.85)',
-      'rgba(167,139,250,.85)',
-      'rgba(251,146,60,.85)',
-      'rgba(34,211,238,.85)',
-    ];
-    const categories = ['Inconsistência', 'Rejeitado', 'Processado'];
-    const errorTypes = [...new Set(data.map(r => r.error_type))];
-    const datasets = errorTypes.map((et, i) => ({
-      label: et,
-      data: categories.map(cat => Number(data.find(r => r.category === cat && r.error_type === et)?.total || 0)),
-      backgroundColor: PALETTE_ARS[i % PALETTE_ARS.length],
-      borderRadius: 3,
-      borderSkipped: false,
-    }));
-    mkChart('alertResolveStatusChart', {
-      type: 'bar',
-      data: { labels: categories, datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'right', labels: { color: tc, font: { size: 10, family: 'JetBrains Mono' }, boxWidth: 10, padding: 10 } },
-          tooltip: { ...tip(), callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString('pt-BR')}` } }
-        },
-        scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { color: tc, font: { size: 10, family: 'JetBrains Mono' } } },
-          y: { ...scY(), stacked: true }
-        }
-      }
-    });
-  } catch(e) { console.error('alertResolveStatusChart:', e); }
-}
-
-let _topProductsData = [];
-let _topProductsPage = 0;
-const TP_PAGE_SIZE = 8;
-
-function _renderTopProducts() {
-  const el = document.getElementById('topProductsList');
-  if (!el) return;
-  const d = _topProductsData;
-  const total = d.length;
-  const maxPages = Math.ceil(total / TP_PAGE_SIZE);
-  const start = _topProductsPage * TP_PAGE_SIZE;
-  const page = d.slice(start, start + TP_PAGE_SIZE);
-  const maxVal = Number(d[0]?.total_qty || 1);
-
-  const rows = page.map((r, i) => {
-    const rank = start + i + 1;
-    const name = r.part_number || r.market_name || 'N/A';
-    const desc = r.local_market_name || ((r.market_name && r.market_name !== name) ? r.market_name : '');
-    const val = Number(r.total_qty);
-    const pct = maxVal > 0 ? (val / maxVal * 100).toFixed(1) : 0;
-    return `<div class="tc-row" style="align-items:flex-start;">
-      <span class="tc-rank">${rank}</span>
-      <div class="tc-name-cell" style="flex-direction:column;align-items:flex-start;gap:1px;">
-        <span class="tc-name" style="display:block;width:100%;" title="${name}">${name}</span>
-        ${desc ? `<span class="tc-name" style="display:block;width:100%;font-size:8px;color:var(--txt3);" title="${desc}">${desc}</span>` : ''}
-      </div>
-      <div class="tc-bar-wrap">
-        <div class="tc-bar-bg"><div class="tc-bar-fill" style="width:${pct}%;background:var(--cyan)"></div></div>
-        <span class="tc-val">${val.toLocaleString('pt-BR')} un</span>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="tc-list">${rows}</div>
-    <div class="tc-pager">
-      <button class="tc-pager-btn" onclick="_tpPage(-1)" ${_topProductsPage === 0 ? 'disabled' : ''}>◀ Anterior</button>
-      <span class="tc-pager-info">${start+1}–${Math.min(start+TP_PAGE_SIZE,total)} de ${total}</span>
-      <button class="tc-pager-btn" onclick="_tpPage(1)" ${_topProductsPage >= maxPages-1 ? 'disabled' : ''}>Próximo ▶</button>
-    </div>`;
-}
-
-function _tpPage(dir) {
-  const maxPages = Math.ceil(_topProductsData.length / TP_PAGE_SIZE);
-  _topProductsPage = Math.max(0, Math.min(_topProductsPage + dir, maxPages - 1));
-  _renderTopProducts();
-}
-
-async function refreshTopProducts(itmSum) {
-  try {
-    _topProductsData = itmSum.top_products || [];
-    _topProductsPage = 0;
-    _renderTopProducts();
-  } catch(e) { console.error('topProductsList:', e); }
+  } catch(e) { console.error('woiBandsChart:', e); }
 }
 
 
@@ -1999,30 +1311,13 @@ async function refreshAll() {
   const spinner = document.getElementById('dateLoadSpinner');
   btn.classList.add('spinning');
   if (spinner) spinner.style.display = 'inline-block';
-  const dateParam = brazilDateParam();
-  const qs = dateParam ? `?${dateParam}` : '';
-  const ordSumParts = [dateParam, `group_by=${_topCustomersGroupBy}`].filter(Boolean);
-  const ordSumQs = `?${ordSumParts.join('&')}`;
   try {
-    const [ordSum, itmSum, alertData, alertPending] = await Promise.all([
-      api(`/brazil/orders/summary${ordSumQs}`),
-      api(`/brazil/order-items/summary${qs}`),
-      api(`/brazil/alert-resolves/by-status${qs}`),
-      api(`/brazil/alert-resolves/pending-count`),
-    ]);
+    const alloc = await api('/allocation/summary');
     setApiOnline();
     await Promise.all([
-      refreshKPIs(ordSum, itmSum, alertPending),
-      refreshOrdersMonth(ordSum),
-      refreshOrdersByStatus(ordSum),
-      refreshTopCustomers(ordSum),
-      refreshAlertDim(),
-      refreshErrorRatio(itmSum),
-      refreshValueTrend(),
-      refreshAlertResolveStatus(alertData),
-
-      refreshTopProducts(itmSum),
-      refreshCustDim(),
+      refreshKPIs(alloc),
+      refreshAllocByKa(alloc),
+      refreshWoiBands(alloc),
       loadCustomWidgets(),
     ]);
   } catch(e) {
@@ -2210,8 +1505,6 @@ async function initDashboard() {
   document.getElementById('errorOverlay').classList.add('hidden');
   try {
     document.getElementById('loadingOverlay').classList.add('hidden');
-    loadValueTrendCustomers();
-    loadValueTrendFilterOptions();
     await refreshAll();
   } catch(e) {
     document.getElementById('loadingOverlay').classList.add('hidden');

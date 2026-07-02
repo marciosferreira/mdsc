@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from db import get_db
+from allocation_db import ALLOCATION_DB_PATH
 from .md_parser import calculate_next_run
 from .runner import run_task_code, TaskCodeError
 
@@ -142,27 +143,17 @@ def _evaluate_condition(task: dict) -> tuple[bool, str]:
 
     Retorna (should_run, detail) onde detail é incluído na notificação automática.
     """
-    import os
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
+    import sqlite3
 
     sql      = (task.get("condition_sql") or "").strip()
     operator = (task.get("condition_operator") or "is_not_empty").strip()
     threshold = task.get("condition_threshold")
 
     try:
-        conn = psycopg2.connect(
-            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
-            port=int(os.getenv("POSH_DB_PORT", "5432")),
-            user=os.getenv("POSH_DB_USER", "postgres"),
-            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
-            dbname=os.getenv("POSH_DB_NAME", "postgres"),
-            options="-c search_path=brazil -c default_transaction_read_only=on",
-        )
+        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
+        conn.row_factory = sqlite3.Row
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql)
-                rows = cur.fetchall()
+            rows = [dict(r) for r in conn.execute(sql).fetchall()]
         finally:
             conn.close()
     except Exception as exc:

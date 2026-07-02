@@ -218,9 +218,9 @@ def schedule_monitor(
         name: Nome do monitor (ex: "Monitor de Pedidos").
         description: O que monitora e qual a condição (ex: "Alerta se total de pedidos do dia >= 160").
         frequency: Com que frequência verificar. Use "every_5m", "every_1h", "daily", etc.
-        condition_sql: Query SELECT que retorna um escalar ou linhas para avaliação.
-                       Para escalar: "SELECT COUNT(*) FROM purchase_order WHERE created_at::date = CURRENT_DATE"
-                       Para existência: "SELECT id FROM purchase_order WHERE status = 'PENDING' LIMIT 1"
+        condition_sql: Query SELECT que retorna um escalar ou linhas para avaliação (dialeto SQLite).
+                       Para escalar: "SELECT COUNT(*) FROM ka_deal_allocation WHERE woi < 10"
+                       Para existência: "SELECT id FROM ka_deal_allocation WHERE rollback > 0 LIMIT 1"
         condition_operator: Como comparar o resultado:
                             ">"  — executa se valor > threshold
                             ">=" — executa se valor >= threshold
@@ -250,25 +250,17 @@ def schedule_monitor(
 
     # Valida condition_sql executando antes de salvar
     try:
-        import os, psycopg2
-        _conn = psycopg2.connect(
-            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
-            port=int(os.getenv("POSH_DB_PORT", "5432")),
-            user=os.getenv("POSH_DB_USER", "postgres"),
-            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
-            dbname=os.getenv("POSH_DB_NAME", "postgres"),
-            options="-c search_path=brazil -c default_transaction_read_only=on",
-        )
-        with _conn.cursor() as cur:
-            cur.execute(condition_sql)
-            cur.fetchone()
+        import sqlite3
+        from allocation_db import ALLOCATION_DB_PATH
+        _conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
+        _conn.execute(condition_sql).fetchone()
         _conn.close()
     except Exception as exc:
         return (
             f"❌ **condition_sql inválido:** a query falhou com o erro abaixo.\n"
             f"Corrija antes de criar o monitor.\n\n"
             f"Erro: `{exc}`\n\n"
-            f"Dica: tabelas disponíveis são `purchase_order`, `order_item`, `customer`, `product`."
+            f"Dica: tabelas disponíveis são `ka_input_data`, `ka_deal_allocation`."
         )
 
     effective_date_range = date_range or "today"

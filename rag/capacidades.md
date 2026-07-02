@@ -1,13 +1,12 @@
-# Capacidades do agente — Brazil Purchase Orders AI
+# Capacidades do agente — KA Allocation AI
 
-O agente responde em linguagem natural sobre pedidos de compra, clientes, produtos, erros e alertas.
+O agente responde em linguagem natural sobre alocação de supply por Key Account, WOI, Score, Deal e KPIs de Health Check.
 
 ## Arquitetura simples
 
 | Camada | Responsabilidade |
 |--------|-----------------|
-| Endpoints REST | Alimentar os gráficos fixos do dashboard — não são usados pelo agente para análise |
-| `analise_sql_livre` | **Única skill de análise** — toda pergunta de dados usa SQL direto no banco |
+| `analise_alocacao` | **Única skill de análise** — toda pergunta de dados usa SQL direto no SQLite de alocação |
 
 ## Como o agente responde perguntas de dados
 
@@ -16,9 +15,9 @@ Usuário faz uma pergunta
       ↓
 Orquestrador → consultar_analista()
       ↓
-Sub-agente lê analise_sql_livre.md
+Sub-agente lê analise_alocacao.md
       ↓
-Escreve e executa SQL no PostgreSQL
+Escreve e executa SQL no SQLite de alocação
       ↓
 Processa resultado com pandas
       ↓
@@ -27,17 +26,17 @@ Responde com tabela ou gráfico
 
 ## Tipos de análise suportados
 
-**Por tempo:** pedidos hoje, esta semana, este mês, últimos N dias, por dia/mês/ano
+**Por tempo:** quarter atual, próximo quarter, por mês (`month_seq`/`month_status`)
 
-**Por cliente:** ranking de clientes, por canal, por estado, por regional
+**Por Key Account:** ranking de alocação, WOI por KA, deals completos por KA
 
-**Por produto:** mais pedidos, por grupo, por part_number, por especificação (ram, rom)
+**Por produto:** alocação por produto/deal_group, por origem (JAG/MAN)
 
-**Por status:** pedidos aprovados/pendentes/inconsistentes/rejeitados; itens por status
+**Por risco de estoque:** KAs com WOI crítico, WOI projetado, distribuição por faixa de risco
 
-**Por erro:** quais erros ocorreram, por cliente, por tipo, frequência
+**Por regra de negócio:** Score de priorização, rollover/rollback aplicados, elegibilidade (allocation_allowed)
 
-**Por valor:** valor total, valor médio, distribuição por cliente ou produto
+**Comparativo:** Request de entrada vs. alocação resultante (join `ka_input_data` × `ka_deal_allocation`)
 
 **Cruzamentos:** qualquer combinação das dimensões acima via JOIN
 
@@ -50,20 +49,20 @@ Responde com tabela ou gráfico
 
 ## Períodos aceitos em linguagem natural
 
-"hoje", "ontem", "esta semana", "semana passada", "últimos N dias", "este mês", "mês passado", "este ano", datas explícitas (ex: "de 01/05 a 28/05")
+Como a granularidade é por quarter/mês (não por data de calendário), períodos costumam ser expressos como "este quarter", "próximo quarter", "quarter atual" — o agente também aceita "hoje", "esta semana", "este mês" para rotular o período do relatório, mesmo quando o filtro real de dados usa `quarter`/`month_status`.
 
 ## Tarefas agendadas
 
 O agente pode criar tarefas que rodam automaticamente.
 
 **Relatórios periódicos:**
-- "Toda segunda às 8h me manda o resumo de pedidos da semana"
-- "Todo dia às 7h gera um PDF com os pedidos do dia anterior"
-- "Todo primeiro do mês exporta os dados para Excel"
+- "Toda segunda às 8h me manda o resumo de WOI crítico por Key Account"
+- "Todo dia às 7h gera um PDF com a alocação do quarter atual"
+- "Todo primeiro do mês exporta os dados de alocação para Excel"
 
 **Monitores com alertas:**
-- "Me avise se chegarem mais de 50 pedidos com inconsistência hoje"
-- "Alerta quando o total de aprovados ficar abaixo de 10 no dia"
+- "Me avise se mais de 10 Key Accounts ficarem com WOI crítico"
+- "Alerta quando houver rollback aplicado no quarter atual"
 
 Frequências: `once`, `daily`, `weekly`, `monthly`, `every_Xm`, `every_Xh`, `every_Xd`
 

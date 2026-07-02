@@ -1,5 +1,5 @@
 """
-Multi-Agente LangGraph — Orquestrador + Sub-agente Analista de Dados
+Multi-Agente LangGraph — Orquestrador + Sub-agente Analista de KA Allocation
 ========================================================================
 Arquitetura:
 
@@ -9,14 +9,14 @@ Arquitetura:
        ├─ get_current_datetime()     → responde data/hora direto
        └─ consultar_analista(detalhes) → delega ao sub-agente
               └─ Sub-agente analista (StateGraph)
-                    ├─ read_skill(filename)              → lê instruções do arquivo .md
-                    ├─ chamar_api(url, params)            → chama a API REST
-                    └─ executar_codigo_pandas(codigo, chave) → sandbox Python/Pandas
+                    ├─ read_skill(filename)                 → lê instruções do arquivo .md
+                    ├─ executar_sql_alocacao(query, chave)   → SQL no SQLite de alocação
+                    └─ analisar_dataframe(script)            → sandbox Python/Pandas
 
 Fluxo do sub-agente por análise:
-  1. read_skill → descobre a API e a estrutura do JSON
-  2. chamar_api(url, chave) → busca dados e salva JSON em api_data[chave] (sem expor ao LLM)
-  3. executar_codigo_pandas(codigo, chave) → cria df, analisa, retorna resultado formatado
+  1. read_skill → descobre o schema das tabelas de alocação
+  2. executar_sql_alocacao(query, chave) → busca dados e injeta DataFrame no ambiente
+  3. analisar_dataframe(script) → processa com pandas, retorna resultado formatado
 """
 
 import contextvars
@@ -62,6 +62,7 @@ from scheduler.widget_tools import (
 logger = logging.getLogger(__name__)
 
 from db import DB_PATH
+from allocation_db import ALLOCATION_DB_PATH
 
 SKILLS_FOLDER = Path(__file__).parent / "skills"
 SKILL_HEADER_LINES = 4
@@ -269,8 +270,7 @@ _eq_lock = threading.Lock()
 _TOOL_LABELS: dict[str, str] = {
     "read_skill":              "📖 Lendo instruções da skill",
     "calcular_periodo":        "📅 Calculando período",
-    "chamar_api":              "🌐 Buscando dados da API",
-    "executar_sql":            "🗄️ Consultando banco de dados",
+    "executar_sql_alocacao":   "📦 Consultando alocação KA",
     "analisar_dataframe":      "🔢 Processando e analisando dados",
     "consultar_analista":      "🔍 Delegando ao sub-agente analista",
     "rag_dominio":             "📚 Consultando base de conhecimento (domínio)",
@@ -509,15 +509,13 @@ _RAG_DIR = Path(__file__).parent / "rag"
 
 @tool
 def rag_dominio() -> str:
-    """Retorna informações sobre o domínio de negócio: o que é o sistema Brazil Purchase Orders,
-    o fluxo de um pedido (importação → validação → aprovação/rejeição), os status possíveis
-    (APPROVED, INCONSISTENCY, PENDING, REJECTED), os campos de data (created_at como principal, issue_date como data do cliente),
-    as entidades principais (customer, product, order_item), KPIs de negócio (taxa de aprovação,
-    volume de pedidos, valor total), canais de venda e regiões.
+    """Retorna informações sobre o domínio de negócio: o que é KA Allocation, o algoritmo de
+    distribuição de supply (Request → Deal → Retail), o Score de priorização (0-7), o WOI
+    (Weeks of Inventory) e suas faixas de risco, Rollover/Rollback, e o glossário de termos
+    (KA, Deal, Supply, Booked, Entered, Sell-in).
 
-    Use quando o usuário perguntar: o que este sistema faz, o que significa um status,
-    como interpretar dados de pedidos, qual coluna de data usar, como os clientes são organizados,
-    o que são canais/regionais, como calcular taxa de aprovação, etc.
+    Use quando o usuário perguntar: o que este sistema faz, o que significa WOI/Score/Rollover,
+    como a alocação é calculada, o que é MMICOM/Retail, como interpretar os KPIs de Health Check, etc.
     """
     return (_RAG_DIR / "dominio.md").read_text(encoding="utf-8")
 
@@ -539,7 +537,7 @@ def rag_capacidades() -> str:
 @tool
 def rag_arquitetura() -> str:
     """Retorna a arquitetura técnica do sistema de agentes: como o orquestrador roteia
-    pedidos, como o sub-agente analista executa análises (read_skill → chamar_api →
+    pedidos, como o sub-agente analista executa análises (read_skill → executar_sql_alocacao →
     analisar_dataframe), o catálogo de skills disponíveis, como o sub-agente de scheduling
     gerencia tarefas, os dois modos de execução (LLM vs determinístico) e os métodos do ctx.
 
@@ -552,14 +550,12 @@ def rag_arquitetura() -> str:
 
 @tool
 def rag_dados() -> str:
-    """Retorna a referência técnica de dados: endpoints da API REST com seus filtros
-    (from, to, status, customer_id, product_group), estrutura dos payloads e schema completo
-    do banco PostgreSQL (tabelas purchase_order, order_item, product, customer, error_type,
-    alert_resolve, file_import, city) com colunas, tipos e descrições.
+    """Retorna a referência técnica de dados: schema completo do banco SQLite de alocação
+    (tabelas ka_input_data e ka_deal_allocation) com colunas, tipos, descrições e a chave de
+    junção natural entre as duas tabelas.
 
-    Use quando o usuário perguntar: quais endpoints existem, quais filtros a API aceita,
-    quais colunas tem a tabela de produção, qual o schema do banco, como cruzar tabelas,
-    quais campos estão disponíveis para análise, etc.
+    Use quando o usuário perguntar: quais tabelas existem, qual o schema do banco, como cruzar
+    as tabelas de entrada e resultado, quais campos estão disponíveis para análise, etc.
     """
     return (_RAG_DIR / "dados.md").read_text(encoding="utf-8")
 
@@ -802,11 +798,11 @@ def read_skill(filename: str) -> str:
     """Lê as instruções completas de uma skill antes de executar qualquer análise.
 
     OBRIGATÓRIO: chame esta tool SEMPRE como primeiro passo de qualquer análise,
-    antes de chamar_api, executar_sql ou analisar_dataframe. A skill define quais
-    endpoints usar, quais parâmetros passar e como processar os dados.
+    antes de executar_sql_alocacao ou analisar_dataframe. A skill define quais
+    tabelas usar, quais colunas existem e como processar os dados.
 
     Args:
-        filename: Nome do arquivo .md da skill (ex: 'analise_producao.md').
+        filename: Nome do arquivo .md da skill (ex: 'analise_alocacao.md').
                   Consulte o catálogo no system prompt para ver os arquivos disponíveis.
     """
     _tlog("read_skill", "CHAMADA", filename=filename)
@@ -822,48 +818,18 @@ def read_skill(filename: str) -> str:
 
 
 @tool
-def chamar_api(url: str, chave: str, params: Optional[dict] = None) -> str:
-    """Busca dados de uma API REST e injeta o DataFrame no ambiente de análise.
+def executar_sql_alocacao(query: str, chave: str) -> str:
+    """Executa uma query SQL SELECT no banco SQLite de KA Allocation e injeta o resultado como DataFrame no ambiente.
 
-    O DataFrame fica disponível como variável com o nome da chave (ex: chave='producao'
-    → variável `producao` no ambiente). Nunca retorna os dados ao LLM.
+    Use esta tool para análises sobre a alocação de supply por Key Account (KA) feita pela IA:
+    Request, Deal, Retail, Score, WOI, rollover/rollback, KPIs de Health Check.
 
-    Args:
-        url: URL completa do endpoint (ex: 'http://localhost:8000/production').
-        chave: Nome da variável no ambiente (ex: 'producao', 'defeitos').
-        params: Parâmetros de query opcionais (ex: {"from": "2026-05-01", "to": "2026-05-15"}).
-    """
-    _tlog("chamar_api", "CHAMADA", url=url, chave=chave, params=params)
-    try:
-        response = http_requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        df = pd.DataFrame(data) if isinstance(data, list) else pd.DataFrame([data])
-        ns = _ns_get()
-        ns[chave] = df
-        msg = f"DataFrame '{chave}' injetado no ambiente: {len(df)} linhas, colunas: {list(df.columns)}."
-        _tlog("chamar_api", "RETORNO", status="OK", linhas=len(df), colunas=list(df.columns))
-    except http_requests.exceptions.HTTPError as e:
-        msg = f"Erro HTTP {e.response.status_code}: {e.response.text}"
-        _tlog("chamar_api", "RETORNO", status="ERRO", erro=msg)
-        return msg
-    except Exception as e:
-        msg = f"Erro ao chamar API '{url}': {e}"
-        _tlog("chamar_api", "RETORNO", status="ERRO", erro=msg)
-        return msg
-    return msg + _ns_summary(ns)
+    As tabelas disponíveis são:
+      ka_input_data      — dado de ENTRADA do algoritmo (Request, Deal, Sell-in, One Plan Week, WOI, User Allocation).
+      ka_deal_allocation — RESULTADO computado pela IA (allocation_W1..W5, rollover, rollback, proj_woi_w1..5, allocation_allowed).
 
-
-@tool
-def executar_sql(query: str, chave: str) -> str:
-    """Executa uma query SQL SELECT no banco PostgreSQL (schema brazil) e injeta o resultado como DataFrame no ambiente.
-
-    Use esta tool quando nenhuma outra skill cobrir o pedido — análises ad-hoc que precisam
-    cruzar tabelas (JOIN), rankings, ou qualquer consulta que a API não oferece.
-
-    O search_path é fixado em 'brazil', então você pode referenciar as tabelas sem prefixo:
-      purchase_order, order_item, product, customer, city
-    Ou com prefixo explícito: brazil.purchase_order, etc.
+    Consulte a skill 'analise_alocacao.md' para a chave de junção entre as duas tabelas
+    (quarter, material_id, key_account_id, month_seq).
 
     O DataFrame fica disponível como variável com o nome da chave (ex: chave='resultado'
     → variável `resultado` no ambiente para uso em analisar_dataframe).
@@ -872,27 +838,19 @@ def executar_sql(query: str, chave: str) -> str:
     Não use SELECT * — liste apenas as colunas necessárias.
 
     Args:
-        query: Query SQL SELECT a ser executada (ex: 'SELECT status::text, COUNT(*) FROM purchase_order GROUP BY status').
+        query: Query SQL SELECT a ser executada (ex: 'SELECT key_account_code, woi FROM ka_deal_allocation WHERE woi < 10').
         chave: Nome da variável no ambiente onde o DataFrame será armazenado (ex: 'resultado', 'dados').
     """
-    _tlog("executar_sql", "CHAMADA", query=query, chave=chave)
+    _tlog("executar_sql_alocacao", "CHAMADA", query=query, chave=chave)
 
     normalized = query.strip().lstrip("(").upper()
     if not normalized.startswith("SELECT"):
         msg = "Apenas queries SELECT são permitidas. Instrução rejeitada."
-        _tlog("executar_sql", "RETORNO", status="ERRO", erro=msg)
+        _tlog("executar_sql_alocacao", "RETORNO", status="ERRO", erro=msg)
         return msg
 
     try:
-        import psycopg2
-        conn = psycopg2.connect(
-            host=os.getenv("POSH_DB_HOST", "127.0.0.1"),
-            port=int(os.getenv("POSH_DB_PORT", "5432")),
-            user=os.getenv("POSH_DB_USER", "postgres"),
-            password=os.getenv("POSH_DB_PASSWORD", "Moto#1234"),
-            dbname=os.getenv("POSH_DB_NAME", "postgres"),
-            options="-c search_path=brazil -c default_transaction_read_only=on",
-        )
+        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
         try:
             df = pd.read_sql_query(query, conn)
         finally:
@@ -903,10 +861,10 @@ def executar_sql(query: str, chave: str) -> str:
             f"DataFrame '{chave}' injetado no ambiente: {len(df)} linhas, "
             f"colunas: {list(df.columns)}."
         )
-        _tlog("executar_sql", "RETORNO", status="OK", linhas=len(df), colunas=list(df.columns))
+        _tlog("executar_sql_alocacao", "RETORNO", status="OK", linhas=len(df), colunas=list(df.columns))
     except Exception as e:
         msg = f"Erro ao executar SQL: {e}"
-        _tlog("executar_sql", "RETORNO", status="ERRO", erro=msg)
+        _tlog("executar_sql_alocacao", "RETORNO", status="ERRO", erro=msg)
         return msg
 
     return msg + _ns_summary(ns)
@@ -916,7 +874,7 @@ def executar_sql(query: str, chave: str) -> str:
 def analisar_dataframe(script: str) -> str:
     """Processa e analisa os dados disponíveis no ambiente, retornando o resultado formatado.
 
-    Variáveis carregadas por chamar_api estão disponíveis pelo nome da chave.
+    Variáveis carregadas por executar_sql_alocacao estão disponíveis pelo nome da chave.
     Variáveis criadas em chamadas anteriores desta tool também estão disponíveis.
     Atribua à variável `result` o que deve ser exibido — DataFrames são automaticamente
     convertidos para tabela markdown. Use print() para textos adicionais.
@@ -1016,6 +974,35 @@ def analisar_dataframe(script: str) -> str:
         sys.stdout = old_stdout
 
 
+def _snapshot_period(where: str, params: tuple = ()) -> "tuple | None":
+    """Resolve um período a partir do snapshot de alocação (allocation.db), não do calendário.
+
+    Os dados de alocação são um snapshot estático: o "agora" deles é o mês com
+    month_status='ongoing', que pode não coincidir com a data de hoje. Períodos como
+    'este quarter' devem refletir o quarter EM ANDAMENTO NOS DADOS (FQ1 etc.), senão
+    a consulta cai num intervalo de calendário sem dados e responde 'nada encontrado'.
+    """
+    import calendar
+
+    try:
+        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
+        try:
+            row = conn.execute(
+                f"SELECT MIN(year_month), MAX(year_month) FROM ka_deal_allocation WHERE {where}",
+                params,
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row or not row[0]:
+            return None
+        frm = date.fromisoformat(row[0][:10])
+        last = date.fromisoformat(row[1][:10])
+        to = date(last.year, last.month, calendar.monthrange(last.year, last.month)[1])
+        return frm, to
+    except Exception:
+        return None
+
+
 @tool
 def calcular_periodo(periodo: str) -> str:
     """Converte um período em linguagem natural para from_date e to_date em YYYY-MM-DD.
@@ -1024,6 +1011,10 @@ def calcular_periodo(periodo: str) -> str:
     os parâmetros from_date e to_date exigidos por consultar_analista — sem eles
     a consulta ao sub-agente analista não pode ser realizada.
 
+    Períodos de quarter/mês são resolvidos a partir do SNAPSHOT de alocação (o quarter
+    "em andamento" dos dados), não do calendário — os dados são uma exportação estática
+    cujo mês corrente pode não ser o mês de hoje.
+
     Retorna uma string no formato: from=YYYY-MM-DD&to=YYYY-MM-DD
 
     Args:
@@ -1031,15 +1022,28 @@ def calcular_periodo(periodo: str) -> str:
             'hoje', 'ontem', 'esta semana', 'semana passada',
             'ultimos 7 dias', 'ultimos 14 dias', 'ultimos 30 dias',
             'ultimos 3 meses', 'ultimas 2 semanas',
-            'este mes', 'mes passado',
+            'este mes', 'mes passado', 'este quarter', 'proximo quarter',
+            'FQ1', 'FQ2' (rótulos literais de quarter dos dados),
             'maio de 2026', 'maio/2026', '05/2026' (mês/ano específico),
             '01/05/2026 a 31/05/2026', '2026-05-01 to 2026-05-31' (range explícito).
     """
+    import re
+
     _tlog("calcular_periodo", "CHAMADA", periodo=periodo)
     hoje = datetime.now().date()
     p = periodo.lower().strip()
 
-    if p in ("hoje", "today"):
+    m_fq = re.search(r"\bfq\s*(\d)\b", p)
+
+    if m_fq:
+        snap = _snapshot_period("quarter = ?", (f"FQ{m_fq.group(1)}",))
+        if snap:
+            frm, to = snap
+        else:
+            msg = f"Quarter 'FQ{m_fq.group(1)}' não encontrado nos dados de alocação."
+            _tlog("calcular_periodo", "RETORNO", status="ERRO", msg=msg)
+            return msg
+    elif p in ("hoje", "today"):
         frm = to = hoje
     elif p in ("ontem", "yesterday"):
         frm = to = hoje - timedelta(days=1)
@@ -1050,15 +1054,38 @@ def calcular_periodo(periodo: str) -> str:
         start = hoje - timedelta(days=hoje.weekday() + 7)
         frm = start
         to = start + timedelta(days=6)
-    elif p in ("este mes", "esse mes", "este mês", "esse mês", "this month"):
-        frm = hoje.replace(day=1)
-        to = hoje
+    elif p in ("este mes", "esse mes", "este mês", "esse mês", "this month", "mes corrente", "mês corrente"):
+        snap = _snapshot_period("month_status = 'ongoing'")
+        if snap:
+            frm, to = snap
+        else:
+            frm = hoje.replace(day=1)
+            to = hoje
     elif p in ("mes passado", "mês passado", "last month"):
         primeiro_deste = hoje.replace(day=1)
         to = primeiro_deste - timedelta(days=1)
         frm = to.replace(day=1)
+    elif re.search(r"quarter|trimestre", p):
+        is_next = bool(re.search(r"pr[oó]xim|seguinte|que vem|vindouro|next", p))
+        snap = _snapshot_period(
+            "month_status = 'next'" if is_next else "month_status IN ('done', 'ongoing')"
+        )
+        if snap:
+            frm, to = snap
+        else:
+            # Fallback: quarter de calendário (banco de alocação indisponível)
+            q_start_month = ((hoje.month - 1) // 3) * 3 + 1
+            q_year = hoje.year
+            if is_next:
+                q_start_month += 3
+                if q_start_month > 12:
+                    q_start_month, q_year = q_start_month - 12, q_year + 1
+            frm = date(q_year, q_start_month, 1)
+            end_month, end_year = q_start_month + 3, q_year
+            if end_month > 12:
+                end_month, end_year = end_month - 12, end_year + 1
+            to = date(end_year, end_month, 1) - timedelta(days=1)
     else:
-        import re
         import calendar
 
         # Range explícito: "01/05/2026 a 31/05/2026", "2026-05-01 to 2026-05-31",
@@ -1135,7 +1162,7 @@ def calcular_periodo(periodo: str) -> str:
             msg = (
                 f"Período '{periodo}' não reconhecido. "
                 "Use: 'hoje', 'ontem', 'esta semana', 'semana passada', "
-                "'ultimos N dias', 'este mes', 'mes passado'."
+                "'ultimos N dias', 'este mes', 'mes passado', 'este quarter', 'proximo quarter'."
             )
             _tlog("calcular_periodo", "RETORNO", status="ERRO", msg=msg)
             return msg
@@ -1175,14 +1202,16 @@ def _build_sub_agent(llm):
 
     SUB_SYSTEM_PROMPT = (
         f"Data de hoje: {hoje}\n\n"
-        "Você é um sub-agente especializado em análise de pedidos de compra (Brazil Purchase Orders).\n\n"
+        "Você é um sub-agente especializado em análise de alocação de supply por Key Account "
+        "(KA Allocation) — Request/Deal/Retail, Score de priorização, WOI, rollover/rollback, "
+        "KPIs de Health Check.\n\n"
         "## Fluxo OBRIGATÓRIO — sem exceção\n"
         "Para QUALQUER pedido de análise, siga exatamente estes passos:\n\n"
-        "  1. ⛔ PRIMEIRO E OBRIGATÓRIO: chame read_skill('analise_sql_livre.md').\n"
-        "     NUNCA chame executar_sql, chamar_api ou analisar_dataframe antes de ler a skill.\n"
+        "  1. ⛔ PRIMEIRO E OBRIGATÓRIO: chame read_skill('analise_alocacao.md').\n"
+        "     NUNCA chame executar_sql_alocacao ou analisar_dataframe antes de ler a skill.\n"
         "     Motivo: a skill é a única fonte dos nomes reais de tabelas e colunas do banco.\n"
         "     Sem lê-la, você inventará nomes que não existem e o SQL vai falhar.\n\n"
-        "  2. Após ler a skill, siga o fluxo que ela define (executar_sql ou chamar_api).\n\n"
+        "  2. Após ler a skill, siga o fluxo que ela define (executar_sql_alocacao).\n\n"
         "  3. Chame analisar_dataframe() para processar os dados e obter o resultado.\n"
         "     - Você pode chamar analisar_dataframe() várias vezes para análises em etapas.\n"
         "     - Variáveis criadas em chamadas anteriores continuam disponíveis.\n\n"
@@ -1193,12 +1222,41 @@ def _build_sub_agent(llm):
         "repita o fluxo completo (passos 1-3) usando os MESMOS parâmetros da análise anterior "
         "— você os encontra no histórico da conversa — e aplique a modificação solicitada no script "
         "passado para analisar_dataframe. NUNCA responda que não é possível modificar um gráfico.\n\n"
-        "## Tipos de dados — invariantes globais\n"
-        "- Colunas de data retornadas pelo banco são strings (TEXT/object). "
-        "Antes de qualquer operação com datas (strftime, sort, comparação, resample), "
-        "converta: `df['created_at'] = pd.to_datetime(df['created_at'])` (ou a coluna correspondente).\n"
-        "- Não existe coluna genérica `date` neste sistema. Use sempre o nome real da coluna "
-        "(ex: `created_at`, `issue_date`, `delivery_month`).\n\n"
+        "## Granularidade temporal — invariante crítico\n"
+        "`year_month` é SEMPRE o dia 1 do mês (ex: '2026-06-01') — representa o mês inteiro, "
+        "não um dia específico. Não existe dado por dia de calendário; o detalhamento dentro "
+        "do mês é por SEMANA (allocation_W1..W5, sell_in1..5, one_plan_week1..5).\n"
+        "Se o usuário pedir 'alocação de hoje' (ou qualquer data que não seja dia 1 de um mês), "
+        "NUNCA filtre por essa data específica nem responda como se existisse alocação para "
+        "aquele dia exato — isso é impossível dado o schema. Em vez disso, explique que a "
+        "granularidade é mensal (linhas sempre no dia 1) e semanal (W1-W5) dentro do mês, "
+        "e ofereça a alocação do mês corrente (month_status='ongoing') como alternativa.\n\n"
+        "## Período padrão sem especificação\n"
+        "WOI e outras métricas MUDAM entre quarters (mesmo produto+KA pode ter WOI bem "
+        "diferente em FQ1 vs FQ2), mas são constantes nos 3 meses de um mesmo quarter. "
+        "Se o usuário perguntar algo (ex: 'quais KAs têm WOI crítico') SEM especificar período, "
+        "assuma o quarter em andamento (`month_status IN ('done','ongoing')`), deixe explícito "
+        "na resposta qual quarter foi usado, e deduplique por KA (o valor se repete nos 3 "
+        "meses). Só considere o próximo quarter ou compare os dois se o usuário pedir "
+        "explicitamente.\n"
+        "Ao citar o rótulo do quarter na resposta, NUNCA deduza — leia dos dados: "
+        "inclua `quarter` no SELECT (ou rode `SELECT DISTINCT quarter FROM ka_deal_allocation "
+        "WHERE month_status='ongoing'`) e use o valor retornado.\n\n"
+        "## Snapshot estático — o [PERÍODO] é uma DICA, não um filtro literal\n"
+        "Os dados são uma exportação estática: o 'agora' deles é o mês com "
+        "month_status='ongoing', que pode NÃO coincidir com a data de hoje. O prefixo "
+        "[PERÍODO: from=...&to=...] serve para rotular o período no texto/título — o filtro "
+        "SQL real deve usar as colunas dos dados (`quarter`, `month_status`, `year_month`).\n"
+        "ANTES de responder 'não há dados para o período', execute um "
+        "`SELECT quarter, month_status, MIN(year_month), MAX(year_month) FROM ka_deal_allocation "
+        "GROUP BY quarter, month_status` para ver o range real. Se o período pedido não "
+        "intersectar os dados, diga qual range existe e responda com o quarter em andamento, "
+        "deixando claro o ajuste. 'FQ1', 'FQ2' são valores LITERAIS da coluna `quarter`.\n\n"
+        "## Disciplina de saída — nunca despeje linhas cruas\n"
+        "Para perguntas do tipo 'quais KAs/produtos...', SEMPRE agregue "
+        "(SELECT DISTINCT ou GROUP BY) — nunca liste a mesma combinação repetida por "
+        "mês/semana. Tabelas na resposta final devem ter NO MÁXIMO ~20 linhas; se houver "
+        "mais, agregue num nível acima ou mostre o top-N e informe o total restante.\n\n"
         "## Regras\n"
         "- NUNCA invente dados — use apenas resultados de analisar_dataframe.\n"
         "- Se analisar_dataframe retornar erro, corrija e chame novamente.\n"
@@ -1231,25 +1289,25 @@ def _build_sub_agent(llm):
         "(totais, máximos, mínimos, médias, desvios relevantes, top-N). "
         "Exemplo:\n"
         "  **Dados do gráfico:**\n"
-        "  - Total do período: 1.247 pedidos\n"
-        "  - Status mais frequente: APPROVED (82%)\n"
-        "  - Pico: 15/05 (78 pedidos) | Menor: 03/05 (12 pedidos)\n"
+        "  - Total alocado no período: 12.400 unidades\n"
+        "  - Key Account com maior alocação: CLARO_BR (34%)\n"
+        "  - WOI crítico: 8 ocorrências (woi < 10)\n"
         "  Isso permite ao orquestrador responder follow-ups sem reanalisar os dados.\n"
         "- RESUMO DO RELATÓRIO PDF: sempre que chamar gerar_pdf(), inclua na resposta final "
         "um bloco **Dados do relatório:** com as seções geradas e os valores principais "
         "(você já tem esses dados — usou-os para compor o conteudo do PDF). Exemplo:\n"
         "  **Dados do relatório:**\n"
-        "  - Seções: Pedidos por status, Top clientes, Erros por tipo\n"
-        "  - Período: 01/05 a 20/05/2026\n"
-        "  - Total de pedidos: 1.247 | Aprovados: 82,3% | Principal erro: PART_NUMBER_NOT_IDENTIFIED (38%)\n"
+        "  - Seções: Alocação por Key Account, WOI crítico, Deals completos\n"
+        "  - Período: FQ1, month_seq 1-3\n"
+        "  - Total alocado: 12.400 | WOI crítico: 8 ocorrências | Deals completos: 62%\n"
         "  Isso permite ao orquestrador responder follow-ups sobre o PDF sem reabri-lo.\n"
         "- RESUMO DA PLANILHA EXCEL: sempre que chamar gerar_excel(), inclua na resposta final "
         "um bloco **Dados da planilha:** com o shape, as colunas e os valores agregados principais "
         "(você viu esses dados no retorno de analisar_dataframe). Exemplo:\n"
         "  **Dados da planilha:**\n"
-        "  - Abas: Pedidos (180 linhas × 6 colunas), Itens (540 × 5)\n"
-        "  - Colunas principais: created_at, customer_name, status, order_number, quantity\n"
-        "  - Total de pedidos: 180 | Aprovados: 148 (82%) | Valor total: R$ 2,4M\n"
+        "  - Abas: Alocação (1472 linhas × 12 colunas)\n"
+        "  - Colunas principais: key_account_code, product, woi, allocation_W1..W5\n"
+        "  - Total alocado: 12.400 | KAs com WOI crítico: 8 | Deals completos: 62%\n"
         "  Isso permite ao orquestrador responder follow-ups sobre a planilha sem reprocessar os dados.\n\n"
         "## Modo agendamento [PARA_AGENDAMENTO]\n"
         "Se a mensagem contiver [PARA_AGENDAMENTO], após a análise normal escreva um bloco\n"
@@ -1260,15 +1318,14 @@ def _build_sub_agent(llm):
         "    # endpoint real, colunas reais, lógica real — sem inventar nada\n"
         "```\n\n"
         "REGRAS CRÍTICAS do bloco task_code:\n"
-        "- Baseie-se EXCLUSIVAMENTE no endpoint real, colunas reais e lógica que você observou\n"
+        "- Baseie-se EXCLUSIVAMENTE na query SQL real, colunas reais e lógica que você observou\n"
         "- NUNCA escreva datas específicas como '2026-05-18' — use from_date/to_date ou ctx.today()\n"
         "- NUNCA inclua linhas de import — pd, np, plt, ctx etc já estão no namespace do sandbox\n"
         "- Retorne via ctx.save_chart(fig), ctx.generate_pdf(titulo, conteudo) ou ctx.generate_excel(df, nome)\n"
         "- NUNCA retorne a figura diretamente — sempre passe por ctx.save_chart(fig)\n"
-        "- Para relatórios periódicos (daily/weekly/monthly): use from_date e to_date recebidos como params\n"
-        "  exemplo: ctx.api(f'/brazil/purchase-orders?from={from_date}&to={to_date}')\n"
-        "- Para monitores (every_Xm/every_Xh): use ctx.today() para a data\n"
-        "  exemplo: hoje = ctx.today(); ctx.api(f'/brazil/orders/summary?from={hoje}&to={hoje}')\n"
+        "- Busque dados EXCLUSIVAMENTE via ctx.sql() — query SELECT direta no SQLite de alocação\n"
+        "  exemplo: rows = ctx.sql(\"SELECT key_account_code, woi FROM ka_deal_allocation WHERE woi < 10\")\n"
+        "  df = pd.DataFrame(rows)\n"
         "- Se a mensagem contiver um bloco de REGRAS DO SANDBOX, siga-as com prioridade máxima\n"
         "- NÃO use df.to_markdown() no conteúdo do PDF — use apenas bullet points e tokens [chart:uuid]\n\n"
         f"## Skills disponíveis\n{catalogo}\n\n"
@@ -1278,7 +1335,7 @@ def _build_sub_agent(llm):
         "NUNCA emita uma tool call sem texto explicativo."
     )
 
-    sub_tools = [read_skill, chamar_api, executar_sql, analisar_dataframe, gerar_pdf, gerar_excel]
+    sub_tools = [read_skill, executar_sql_alocacao, analisar_dataframe, gerar_pdf, gerar_excel]
     llm_sub = llm.bind_tools(sub_tools)
     no_sub_tools = ToolNode(sub_tools)
 
@@ -1292,7 +1349,7 @@ def _build_sub_agent(llm):
                 "Os scripts abaixo foram executados em análises anteriores desta conversa.",
                 "Se o pedido atual for uma modificação de um desses gráficos/análises, use o "
                 "script correspondente como base — chame apenas analisar_dataframe() com o "
-                "script modificado, sem refazer read_skill nem chamar_api.\n",
+                "script modificado, sem refazer read_skill nem executar_sql_alocacao.\n",
             ]
             for i, entry in enumerate(history, 1):
                 lines.append(f"### Script {i} — pedido: \"{entry['query']}\"")
@@ -1317,7 +1374,7 @@ def _build_sub_agent(llm):
             response = _AI(content=(
                 "Erro interno: o modelo tentou computar datas em código Python em vez de "
                 "chamar a tool `calcular_periodo`. Use calcular_periodo() para obter as "
-                f"datas before/after e depois chame chamar_api normalmente.\n\n"
+                f"datas before/after e depois chame executar_sql_alocacao normalmente.\n\n"
                 f"Tentativa inválida capturada:\n```\n{bad}\n```"
             ))
 
@@ -1356,17 +1413,17 @@ def _build_sub_agent(llm):
 
 @tool
 def consultar_analista(detalhes: str, from_date: str, to_date: str, tipo: str = "grafico", para_agendamento: bool = False) -> str:
-    """Delega a análise ao sub-agente analista de dados.
+    """Delega a análise ao sub-agente analista de KA Allocation.
 
-    O sub-agente irá identificar a skill correta, buscar os dados na API
+    O sub-agente irá ler a skill de alocação, consultar o SQLite via SQL
     e retornar uma análise baseada nos dados reais.
 
     IMPORTANTE: Sempre chame calcular_periodo() antes para obter from_date e to_date.
 
     Args:
-        detalhes: O que o usuário quer analisar (ex: "pedidos este mês",
-                  "pedidos por status", "clientes com mais pedidos",
-                  "itens com inconsistência", "volume por produto").
+        detalhes: O que o usuário quer analisar (ex: "WOI crítico este quarter",
+                  "alocação por Key Account", "KAs com maior rollover",
+                  "deals não completos", "volume alocado por produto").
         from_date: Data inicial no formato YYYY-MM-DD. Obter via calcular_periodo().
         to_date: Data final no formato YYYY-MM-DD. Obter via calcular_periodo().
         tipo: Tipo de saída desejado. Use EXATAMENTE um dos valores abaixo:
@@ -1520,7 +1577,7 @@ def _build_scheduler_agent(llm):
         "tarefa para modo B, use test_task_code para validar o código e save_task_code para salvar.\n\n"
         "## Campos importantes\n"
         "- description: texto curto e legível que descreve o que a tarefa faz. "
-        "Aparece na listagem para o usuário. Ex: 'Relatório semanal de pedidos toda segunda às 8h.'\n"
+        "Aparece na listagem para o usuário. Ex: 'Relatório semanal de WOI crítico por Key Account toda segunda às 8h.'\n"
         "- instructions: passo a passo detalhado com o código Python validado. "
         "Não aparece na listagem. Usado no modo LLM.\n"
         "- task_code: código Python com `def run(from_date, to_date, ctx)`. "
@@ -1542,29 +1599,34 @@ def _build_scheduler_agent(llm):
         "2. Somente após teste bem-sucedido, chame save_task_code(task_id=ID, code=código).\n"
         "3. Retorne o resultado de save_task_code literalmente ao orquestrador.\n\n"
         "REGRA CRÍTICA: o código que o orquestrador envia foi construído com dados reais\n"
-        "(endpoints e colunas observadas durante execução interativa). NÃO altere nomes de\n"
-        "colunas ou endpoints — corrija apenas erros de sintaxe ou lógica Python.\n\n"
+        "(queries SQL e colunas observadas durante execução interativa). NÃO altere nomes de\n"
+        "colunas ou tabelas — corrija apenas erros de sintaxe ou lógica Python.\n\n"
         "## Exemplo de task_code\n"
         "```python\n"
         "def run(from_date, to_date, ctx):\n"
-        "    from_d, to_d = ctx.date_range(days=7)\n"
-        "    dados = ctx.api(f'/brazil/purchase-orders?from={from_d}&to={to_d}')\n"
-        "    df = pd.DataFrame(dados)\n"
+        "    rows = ctx.sql('''\n"
+        "        SELECT key_account_code, woi, allocation_W1, allocation_W2, allocation_W3,\n"
+        "               allocation_W4, allocation_W5\n"
+        "        FROM ka_deal_allocation\n"
+        "        WHERE month_status IN ('done', 'ongoing')\n"
+        "    ''')\n"
+        "    df = pd.DataFrame(rows)\n"
         "    fig, ax = plt.subplots(figsize=(10, 4))\n"
-        "    ax.bar(df['created_at'], df['order_number'], color='steelblue')\n"
-        "    ax.set_title('Pedidos por Data')\n"
+        "    por_ka = df.groupby('key_account_code')['woi'].mean().reset_index()\n"
+        "    ax.bar(por_ka['key_account_code'], por_ka['woi'], color='steelblue')\n"
+        "    ax.set_title('WOI Médio por Key Account')\n"
         "    token_chart = ctx.save_chart(fig)\n"
         "    # NÃO use to_markdown() — causa erro de layout no PDF\n"
         "    # Use apenas bullet points com valores agregados\n"
-        "    total = len(df)\n"
-        "    aprovados = (df['status'] == 'APPROVED').sum()\n"
+        "    total_kas = df['key_account_code'].nunique()\n"
+        "    criticos = df[df['woi'] < 10]['key_account_code'].nunique()\n"
         "    conteudo = (\n"
-        "        f'## Pedidos por Data\\n\\n{token_chart}\\n\\n'\n"
-        "        f'- Período: {from_d} a {to_d}\\n'\n"
-        "        f'- Total de pedidos: {total}\\n'\n"
-        "        f'- Aprovados: {aprovados} ({aprovados/total*100:.1f}%)\\n'\n"
+        "        f'## WOI por Key Account\\n\\n{token_chart}\\n\\n'\n"
+        "        f'- Período: {from_date} a {to_date}\\n'\n"
+        "        f'- Total de Key Accounts: {total_kas}\\n'\n"
+        "        f'- KAs com WOI crítico: {criticos} ({criticos/total_kas*100:.1f}%)\\n'\n"
         "    )\n"
-        "    return ctx.generate_pdf('Relatório de Pedidos', conteudo)\n"
+        "    return ctx.generate_pdf('Relatório de WOI por Key Account', conteudo)\n"
         "```\n\n"
         "## Edição de task_code\n"
         "Quando o usuário pedir para alterar qualquer aspecto do relatório (cor, escala, colunas):\n"
@@ -1579,7 +1641,7 @@ def _build_scheduler_agent(llm):
         "Se a instrução recebida mencionar alerta/avise/notifique/monitore/threshold/caso X>N:\n"
         "→ A tarefa já foi criada via schedule_monitor com condition_sql/operator/threshold.\n"
         "→ O task_code deve APENAS retornar o valor atual — sem ctx.notify(), sem lógica condicional.\n"
-        "→ Exemplo: return f'Total de pedidos: {rows[0][\"total\"]}'\n"
+        "→ Exemplo: return f'KAs com WOI crítico: {rows[0][\"total\"]}'\n"
         "→ NÃO use ctx.notify() no task_code de monitores — o daemon notifica automaticamente.\n\n"
         "## REGRA CRÍTICA — criar vs editar\n"
         "schedule_task SOMENTE quando o usuário pedir explicitamente para CRIAR uma tarefa nova.\n"
@@ -1676,7 +1738,7 @@ def _build_scheduling_graph(llm):
             '  "day": "número 1-31 para monthly ou null",\n'
             '  "time": "HH:MM ou null",\n'
             '  "date_range": "ytd|mtd|today|last_7d|last_30d|last_90d ou null",\n'
-            '  "condition_sql": "query SELECT PostgreSQL para monitors (schema brazil, sem prefixo) ou null",\n'
+            '  "condition_sql": "query SELECT SQLite para monitors (dialeto SQLite, sem schema) ou null",\n'
             '  "condition_operator": ">= | > | <= | < | == | != | is_empty | is_not_empty ou null",\n'
             '  "condition_threshold": "número ou null"\n'
             '}\n\n'
@@ -1684,8 +1746,10 @@ def _build_scheduling_graph(llm):
             "- task_type=monitor se o pedido menciona: alerte/avise/notifique/monitore/caso X>N/threshold\n"
             "- task_type=report para relatórios, gráficos, planilhas recorrentes\n"
             "- monitor: frequency=every_5m por padrão, time=null; preencha condition_sql/operator/threshold\n"
-            "- condition_sql deve usar CURRENT_DATE para 'hoje', CURRENT_DATE-N para períodos\n"
-            "- tabelas disponíveis: purchase_order, order_item, customer, product (NÃO use 'orders')\n"
+            "- condition_sql deve usar dialeto SQLite: date('now') para 'hoje', date('now', '-N days') "
+            "para períodos passados — NUNCA use CURRENT_DATE, ::text ou TO_CHAR (sintaxe Postgres)\n"
+            "- tabelas disponíveis: ka_input_data, ka_deal_allocation (colunas: key_account_code, "
+            "material_id, quarter, month_seq, month_status, woi, allocation_W1..W5, rollover, rollback)\n"
             "- date_range: preencha quando o pedido especifica período (ano atual→ytd, mês→mtd)\n"
             "- weekly → weekday obrigatório. monthly → day obrigatório.\n"
         )
@@ -1738,7 +1802,7 @@ def _build_scheduling_graph(llm):
 
     # ── Node: consultar_dados ────────────────────────────────────────────────
     # Responsabilidade única: o analista identifica a skill correta, busca dados
-    # reais via API e devolve um contexto estruturado (skill, endpoint, colunas,
+    # reais via SQL e devolve um contexto estruturado (skill, query, colunas,
     # amostra). NÃO escreve código — isso fica no nó seguinte.
 
     def node_consultar_dados(state: SchedulingState) -> dict:
@@ -1755,11 +1819,11 @@ def _build_scheduling_graph(llm):
             f"Pedido do usuário: {state['user_request']}\n\n"
             f"Sua tarefa nesta fase:\n"
             f"1. Chame read_skill() para identificar a skill correta para este pedido.\n"
-            f"2. Chame chamar_api() para buscar dados reais do período acima.\n"
+            f"2. Chame executar_sql_alocacao() para buscar dados reais do período acima.\n"
             f"3. Chame analisar_dataframe() para observar colunas e valores.\n"
             f"4. Retorne um relatório de contexto com EXATAMENTE este formato:\n\n"
             f"SKILL: <nome do arquivo .md usado>\n"
-            f"ENDPOINT: <URL completa usada na chamada chamar_api, com parâmetros>\n"
+            f"QUERY: <SQL SELECT completa usada na chamada executar_sql_alocacao>\n"
             f"COLUNAS: <lista das colunas relevantes do dataframe>\n"
             f"AMOSTRA: <3-5 linhas representativas do dataframe em formato texto>\n"
             f"TIPO_SAIDA: <PDF_COM_GRAFICO | GRAFICO | EXCEL | MONITOR>\n\n"
@@ -1804,8 +1868,9 @@ def _build_scheduling_graph(llm):
             f"## Regras obrigatórias do sandbox\n"
             f"{_sandbox_skill}\n\n"
             f"## Instruções\n"
-            f"- Escreva a função `def run(from_date, to_date, ctx)` usando o endpoint e colunas acima.\n"
-            f"- Use EXATAMENTE o endpoint informado em ENDPOINT (com from_date e to_date como parâmetros de data).\n"
+            f"- Escreva a função `def run(from_date, to_date, ctx)` usando a query e colunas acima.\n"
+            f"- Use EXATAMENTE a query SQL informada em QUERY, adaptada para `ctx.sql(f'''...''')` "
+            f"(com from_date e to_date interpolados como parâmetros de data).\n"
             f"- Use EXATAMENTE os nomes de colunas informados em COLUNAS.\n"
             f"- Siga o template canônico correspondente ao TIPO_SAIDA:\n"
             f"    PDF_COM_GRAFICO → salve gráfico com ctx.save_chart(fig) e gere PDF com ctx.generate_pdf()\n"
@@ -2114,9 +2179,9 @@ def criar_tarefa_agendada(instrucao: str, config: RunnableConfig = None) -> str:
     Args:
         instrucao: Descrição completa do que a tarefa deve fazer, com frequência e
                    qualquer parâmetro relevante. Exemplos:
-                   "Relatório semanal de pedidos toda segunda às 8h"
-                   "Monitor a cada 5 minutos, alerta se inconsistências do dia passarem de 50"
-                   "Planilha mensal de pedidos por cliente no dia 1 de cada mês"
+                   "Relatório semanal de WOI crítico por Key Account toda segunda às 8h"
+                   "Monitor a cada 5 minutos, alerta se KAs com WOI crítico passarem de 10"
+                   "Planilha mensal de alocação por Key Account no dia 1 de cada mês"
     """
     if _scheduling_graph is None:
         return "SchedulingGraph não inicializado."
@@ -2190,10 +2255,18 @@ MAX_INTERACOES = int(os.getenv("MAX_INTERACOES", "10"))
 
 def _build_orchestrator(llm, checkpointer=None):
     ORQ_SYSTEM_PROMPT = (
-        "Você é o agente orquestrador de um sistema de gestão de pedidos de compra (Brazil Purchase Orders). "
-        "O sistema processa pedidos de clientes, valida itens, gerencia inconsistências e oferece visibilidade "
-        "sobre o pipeline de vendas Brazil. NÃO é um sistema de chão-de-fábrica — não há OEE, FPY, produção "
-        "ou linhas de montagem. 'Pedidos' neste sistema significa SEMPRE purchase_order.\n\n"
+        "Você é o agente orquestrador de um sistema de análise de KA Allocation — alocação de "
+        "supply por Key Account (KA), calculada por um algoritmo de IA (Request → Deal → Retail, "
+        "Score de priorização, WOI, Rollover/Rollback). NÃO é um sistema de chão-de-fábrica — não há "
+        "OEE, FPY, produção ou linhas de montagem, e NÃO é mais um sistema de pedidos de compra.\n\n"
+        "## PERÍODOS E QUARTERS — regras deste domínio\n"
+        "- Os dados são um SNAPSHOT estático: o 'agora' deles é o mês em andamento nos dados, "
+        "que pode não coincidir com a data de hoje.\n"
+        "- 'FQ1', 'FQ2' etc. são RÓTULOS LITERAIS de quarter que existem nos dados — "
+        "NUNCA peça ao usuário para converter em datas; passe direto para calcular_periodo "
+        "(ex: calcular_periodo('FQ1')) e inclua o rótulo em `detalhes` de consultar_analista.\n"
+        "- Se o usuário NÃO mencionar período nenhum, use calcular_periodo('este quarter') "
+        "como padrão — nunca invente um mês específico.\n\n"
         "## HISTÓRICO DE CONVERSA\n"
         "As mensagens acima (antes desta instrução) são o histórico completo desta sessão, "
         "incluindo perguntas e respostas anteriores ao último refresh da página do usuário. "
@@ -2205,16 +2278,16 @@ def _build_orchestrator(llm, checkpointer=None):
         "  A) CONSULTA PONTUAL — o usuário quer ver dados, gráficos, tabelas ou análises AGORA.\n"
         "     Palavras-chave: 'me diga', 'mostre', 'qual é', 'quanto', 'quantos', 'como está',\n"
         "     'gráfico de', 'análise de', 'compare', 'relatório de',\n"
-        "     'pedidos', 'itens', 'clientes', 'erros', 'inconsistências', 'status', 'aprovados', 'rejeitados'.\n"
+        "     'alocação', 'allocation', 'KA', 'key account', 'WOI', 'score', 'deal', 'request',\n"
+        "     'retail', 'rollover', 'rollback', 'supply', 'health check'.\n"
         "     → Chame calcular_periodo() + consultar_analista(). NÃO envolva gerenciar_agenda.\n"
-        "     REGRA: qualquer pergunta sobre volumes, contagens ou dados do sistema é categoria A.\n"
-        "     NUNCA peça ao usuário para esclarecer o que é 'pedido' — neste sistema 'pedido' = purchase_order.\n\n"
+        "     REGRA: qualquer pergunta sobre volumes, contagens ou dados do sistema é categoria A.\n\n"
         "  B) PERGUNTA CONCEITUAL — o usuário quer saber o que algo significa ou como é calculado.\n"
         "     → Chame a tool rag_* mais adequada ao tema da pergunta. Responda diretamente sem buscar dados.\n"
-        "       rag_dominio()      → domínio, status de pedido, campos de data, clientes, canais\n"
+        "       rag_dominio()      → domínio, o que é WOI/Score/Rollover, glossário, algoritmo\n"
         "       rag_capacidades()  → o que o agente pode fazer, agendamento, monitores\n"
         "       rag_arquitetura()  → como o sistema funciona, sub-agentes, skills\n"
-        "       rag_dados()        → endpoints da API, schema do banco, colunas\n\n"
+        "       rag_dados()        → schema do banco de alocação, colunas\n\n"
         "  C) AGENDAMENTO — o usuário quer CRIAR, EDITAR, LISTAR, PAUSAR ou DELETAR uma tarefa recorrente.\n"
         "     Palavras-chave obrigatórias: 'agendar', 'todo dia', 'toda semana', 'automaticamente',\n"
         "     'criar tarefa', 'monitor', 'me avise quando', 'editar tarefa [ID]'.\n"
@@ -2227,8 +2300,8 @@ def _build_orchestrator(llm, checkpointer=None):
         "     mostra', 'quantos alertas', 'quantas notificações', 'KPI'. Também se enquadra aqui\n"
         "     qualquer mensagem que contenha uma imagem anexada pelo usuário.\n"
         "     → Chame get_dashboard_charts() para obter os dados numéricos do dashboard.\n"
-        "     → Se a pergunta envolver o SIGNIFICADO de algo visível (o que é INCONSISTENCY,\n"
-        "       o que é taxa de aprovação), chame rag_dominio() em seguida para complementar.\n"
+        "     → Se a pergunta envolver o SIGNIFICADO de algo visível (o que é WOI crítico,\n"
+        "       o que é Score), chame rag_dominio() em seguida para complementar.\n"
         "     → NÃO chame consultar_analista — os dados relevantes já estão na tela.\n\n"
         "  F) PAINEL CUSTOMIZADO NO DASHBOARD — o usuário quer ADICIONAR, INSERIR, FIXAR ou REMOVER\n"
         "     um gráfico como painel permanente no dashboard (seção 'Painéis Customizados').\n"
@@ -2242,15 +2315,15 @@ def _build_orchestrator(llm, checkpointer=None):
         "sem que o usuário tenha usado explicitamente palavras de inserção no dashboard (categoria F).\n\n"
         "## Análise de imagens do dashboard\n"
         "Quando o usuário envia uma imagem junto com sua mensagem, trata-se de um recorte da\n"
-        "própria tela do dashboard — pode conter gráficos de pedidos, status, clientes, erros,\n"
-        "KPIs, alertas ou qualquer outro elemento visual do sistema Brazil Purchase Orders.\n"
+        "própria tela do dashboard — pode conter gráficos de alocação, WOI, Score, KPIs de\n"
+        "Health Check, alertas ou qualquer outro elemento visual do sistema de KA Allocation.\n"
         "Analise visualmente o conteúdo da imagem e:\n"
         "  1. Descreva o que está sendo exibido (tipo de gráfico, eixos, tendências, valores\n"
         "     destacados, anomalias visíveis).\n"
         "  2. Se precisar dos valores numéricos exatos por trás do gráfico, chame\n"
         "     get_dashboard_charts() — ela retorna os dados brutos de todos os gráficos.\n"
-        "  3. Se precisar explicar o significado de algo visível (status, campos de data,\n"
-        "     taxa de aprovação), chame rag_dominio() para buscar a definição precisa.\n"
+        "  3. Se precisar explicar o significado de algo visível (WOI, Score, Rollover,\n"
+        "     Rollback), chame rag_dominio() para buscar a definição precisa.\n"
         "  4. Combine o que você vê na imagem com os dados retornados pelas tools para dar\n"
         "     uma resposta completa e contextualizada.\n\n"
         "## Follow-up sobre gráficos gerados por consultar_analista\n"
@@ -2278,9 +2351,9 @@ def _build_orchestrator(llm, checkpointer=None):
         "NUNCA peça ao usuário nome ou descrição — infira do contexto.\n"
         "Inclua na instrução: o que a tarefa faz, a frequência e (se mencionado) o horário.\n"
         "Exemplos de instrucao:\n"
-        "  'Relatório semanal de pedidos toda segunda às 8h'\n"
-        "  'Monitor a cada 5 minutos, alerta se inconsistências passarem de 50'\n"
-        "  'Planilha mensal de pedidos por cliente no dia 1 de cada mês'\n\n"
+        "  'Relatório semanal de WOI crítico por Key Account toda segunda às 8h'\n"
+        "  'Monitor a cada 5 minutos, alerta se KAs com WOI crítico passarem de 10'\n"
+        "  'Planilha mensal de alocação por Key Account no dia 1 de cada mês'\n\n"
         "Após criar_tarefa_agendada retornar, repasse o resultado ao usuário.\n"
         "NÃO inclua tokens [chart:uuid], [pdf:uuid] ou [excel:uuid] na sua resposta —\n"
         "os artefatos já foram enviados ao chat automaticamente.\n\n"
@@ -2301,15 +2374,15 @@ def _build_orchestrator(llm, checkpointer=None):
         "   Responda: 'Vou criar e fixar um painel [descrição] no dashboard. Confirma?'\n"
         "   Aguarde confirmação. Se o usuário confirmar, prossiga.\n\n"
         "2. Execute consultar_analista() com para_agendamento=True para descobrir\n"
-        "   os dados reais (endpoint, colunas, valores). Chame calcular_periodo() antes.\n"
+        "   os dados reais (query SQL, colunas, valores). Chame calcular_periodo() antes.\n"
         "   ⛔ OBRIGATÓRIO — nunca escreva código sem ter observado os dados reais.\n\n"
         "3. Escreva o widget_code com base no bloco task_context do passo 2.\n"
         "   REGRAS CRÍTICAS DO WIDGET CODE (viole qualquer uma = erro garantido):\n\n"
         "   ⛔ NUNCA use `import` dentro de run() — o sandbox bloqueia qualquer import.\n"
         "      Variáveis pré-injetadas disponíveis: pd, np, ctx, from_date, to_date,\n"
         "      date, datetime, timedelta. Use-as diretamente.\n\n"
-        "   ⛔ ctx.api() SEMPRE retorna lista Python (list[dict]). NUNCA é um DataFrame.\n"
-        "      Converta SEMPRE: `df = pd.DataFrame(ctx.api('/endpoint...'))`\n"
+        "   ⛔ ctx.sql() SEMPRE retorna lista Python (list[dict]). NUNCA é um DataFrame.\n"
+        "      Converta SEMPRE: `df = pd.DataFrame(ctx.sql('SELECT ...'))`\n"
         "      Acessar colunas antes de converter causa KeyError.\n\n"
         "   ⛔ run() DEVE retornar um dict Chart.js com 'type' e 'data'.\n"
         "      Tipos aceitos: bar, line, pie, doughnut, radar, polarArea.\n"
@@ -2319,22 +2392,26 @@ def _build_orchestrator(llm, checkpointer=None):
         "   Template COMPLETO e correto (copie e adapte):\n"
         "   ```python\n"
         "   def run(from_date, to_date, ctx):\n"
-        "       raw = ctx.api(f'/brazil/order-items/summary?from={from_date}&to={to_date}')\n"
-        "       df = pd.DataFrame(raw['by_status'])  # OBRIGATÓRIO: converter list→DataFrame\n"
-        "       labels = df['status'].tolist()\n"
-        "       values = df['total_items'].tolist()\n"
+        "       rows = ctx.sql('''\n"
+        "           SELECT key_account_code, COUNT(*) AS total\n"
+        "           FROM ka_deal_allocation WHERE woi < 10\n"
+        "           GROUP BY key_account_code\n"
+        "       ''')\n"
+        "       df = pd.DataFrame(rows)  # OBRIGATÓRIO: converter list→DataFrame\n"
+        "       labels = df['key_account_code'].tolist()\n"
+        "       values = df['total'].tolist()\n"
         "       return {\n"
         "           'type': 'pie',\n"
         "           'data': {\n"
         "               'labels': labels,\n"
-        "               'datasets': [{'label': 'Itens por Status', 'data': values}]\n"
+        "               'datasets': [{'label': 'WOI Crítico por KA', 'data': values}]\n"
         "           }\n"
         "       }\n"
         "   ```\n\n"
         "4. Chame test_widget_code(title=TÍTULO, code=CÓDIGO) para validar.\n"
         "   Se retornar erro, leia a mensagem, corrija O ERRO EXATO e teste novamente.\n"
         "   Erros comuns: (a) import bloqueado → remova o import, use a variável pré-injetada;\n"
-        "   (b) KeyError/AttributeError → você esqueceu o pd.DataFrame() após ctx.api().\n"
+        "   (b) KeyError/AttributeError → você esqueceu o pd.DataFrame() após ctx.sql().\n"
         "   NUNCA avance com erro.\n\n"
         "5. Chame add_chart_to_dashboard(title=TÍTULO, description=DESCRIÇÃO, code=CÓDIGO).\n\n"
         "6. Responda: 'Painel **[título]** adicionado ao dashboard. "
