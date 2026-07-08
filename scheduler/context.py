@@ -5,10 +5,9 @@ reutilizando as mesmas funções internas do agente.
 """
 
 import io
-import sqlite3
 from datetime import date, timedelta
 
-from allocation_db import ALLOCATION_DB_PATH
+import db_config
 
 
 class TaskContext:
@@ -28,31 +27,16 @@ class TaskContext:
     _VALID_PREFIXES = ("/alerts",)
 
     def sql(self, query: str) -> "list[dict]":
-        """Executa uma query SELECT no SQLite de alocação e retorna lista de dicts.
+        """Executa uma query SELECT no banco configurado (config/) e retorna lista de dicts.
 
-        Tabelas disponíveis: ka_input_data (dado de entrada) e ka_deal_allocation
-        (resultado computado pela IA). Apenas SELECT é permitido.
+        O schema real (tabelas, colunas) está descrito em config/dominio.md.
+        Apenas SELECT é permitido.
 
         Exemplo:
-            rows = ctx.sql('''
-                SELECT key_account_code, COUNT(*) AS total
-                FROM ka_deal_allocation
-                WHERE woi < 10
-                GROUP BY key_account_code
-            ''')
+            rows = ctx.sql("SELECT categoria, COUNT(*) AS total FROM tabela GROUP BY categoria")
             df = pd.DataFrame(rows)
         """
-        normalized = query.strip().lstrip("(").upper()
-        if not normalized.startswith("SELECT"):
-            raise ValueError("ctx.sql() aceita apenas queries SELECT.")
-
-        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
-        conn.row_factory = sqlite3.Row
-        try:
-            cur = conn.execute(query)
-            return [dict(r) for r in cur.fetchall()]
-        finally:
-            conn.close()
+        return db_config.run_select(query)
 
     def api(self, path: str) -> any:
         """GET na API local. path deve começar com '/'.

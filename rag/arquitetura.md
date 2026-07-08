@@ -1,4 +1,4 @@
-# Arquitetura do sistema de agentes — KA Allocation AI
+# Arquitetura do sistema de agentes
 
 O sistema usa um grafo multi-agente LangGraph com três agentes cooperando.
 
@@ -25,8 +25,8 @@ o orquestrador a completar o fluxo.
 
 Ativado pelo orquestrador via `consultar_analista()`. Executa análises em três etapas obrigatórias:
 
-1. `read_skill('analise_alocacao.md')` — lê schema, relacionamentos e regras de negócio
-2. `executar_sql_alocacao(query, chave)` — executa SELECT no SQLite de alocação e injeta DataFrame no ambiente
+1. `read_skill('dominio.md')` — lê schema, relacionamentos e regras do pack de configuração
+2. `executar_sql(query, chave)` — executa SELECT no banco configurado e injeta DataFrame no ambiente
 3. `analisar_dataframe(script)` — processa com pandas, gera gráfico (`result = fig`) ou tabela (`result = df`)
 
 O ambiente persiste entre chamadas na mesma sessão (estilo Jupyter) — DataFrames criados em um passo ficam disponíveis nos seguintes.
@@ -35,7 +35,7 @@ O ambiente persiste entre chamadas na mesma sessão (estilo Jupyter) — DataFra
 
 | Arquivo | O que cobre |
 | --- | --- |
-| `analise_alocacao.md` | Única skill de análise — toda pergunta sobre alocação, WOI, Score, Deal, Health Check |
+| `dominio.md` (config/) | Única skill de análise — schema, joins e regras do domínio configurado |
 
 ## Sub-agente de scheduling
 
@@ -53,7 +53,7 @@ O objeto `ctx` injetado no `run()` oferece:
 | Método | O que faz |
 | --- | --- |
 | `ctx.api(url)` | Chama o endpoint `/alerts` (sino de notificações) e retorna os dados como list |
-| `ctx.sql(query)` | Executa SELECT no SQLite de alocação (`ka_input_data`, `ka_deal_allocation`) e retorna list de dicts |
+| `ctx.sql(query)` | Executa SELECT no banco configurado e retorna list de dicts |
 | `ctx.today()` | Retorna a data atual no formato `YYYY-MM-DD` |
 | `ctx.date_range(days=N)` | Retorna `(from_date, to_date)` para os últimos N dias |
 | `ctx.save_chart(fig)` | Salva figura matplotlib e retorna token `[chart:uuid]` |

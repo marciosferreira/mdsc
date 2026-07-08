@@ -5,9 +5,23 @@ Uso: python load_ka_allocation.py
 Idempotente — recria as tabelas do zero a cada execução (DROP + CREATE + INSERT),
 então pode ser rodado quantas vezes for necessário após uma nova exportação dos xlsx.
 """
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+
 import pandas as pd
 
-from allocation_db import get_allocation_db
+ALLOCATION_DB = Path(__file__).parent / "allocation.db"
+
+
+@contextmanager
+def get_allocation_db():
+    conn = sqlite3.connect(ALLOCATION_DB)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
 
 INPUT_XLSX = "ka-allocation-automation_output_data.xlsx"
 OUTPUT_XLSX = "ka-allocation-automation_output_deal_allocation (9).xlsx"

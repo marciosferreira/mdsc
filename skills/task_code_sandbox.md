@@ -25,21 +25,16 @@ Todas as bibliotecas já estão no namespace — qualquer `import` causa erro im
 
 ## Como buscar dados
 
-Tasks agendadas buscam dados **exclusivamente via `ctx.sql()`** — query SELECT direta no SQLite de alocação (tabelas `ka_input_data` e `ka_deal_allocation`). O retorno é sempre `list[dict]`; converta com `pd.DataFrame(rows)`.
+Tasks agendadas buscam dados **exclusivamente via `ctx.sql()`** — query SELECT direta no
+banco configurado (o schema real — tabelas, colunas, regras — está na skill `dominio.md`).
+O retorno é sempre `list[dict]`; converta com `pd.DataFrame(rows)`.
 
 ```python
-rows = ctx.sql(f"""
-    SELECT key_account_code, COUNT(*) AS total
-    FROM ka_deal_allocation
-    WHERE woi < 10
-    GROUP BY key_account_code
-""")
+rows = ctx.sql("SELECT categoria, COUNT(*) AS total FROM tabela GROUP BY categoria")
 df = pd.DataFrame(rows)
 ```
 
-> `ctx.api()` existe no namespace mas serve apenas para o endpoint `/alerts` (sino de notificações) — não use em tasks de alocação.
-
-`year_month` é confiável em ambas as tabelas; `month_seq` (1/2/3) + `month_status` (`done`/`ongoing`/`next`) também servem para ordenar meses dentro de um quarter.
+> `ctx.api()` existe no namespace mas serve apenas para o endpoint `/alerts` (sino de notificações) — não use em tasks de dados.
 
 ---
 
@@ -65,7 +60,7 @@ df = pd.DataFrame(rows)
 
 | Chamada | Retorna |
 |---|---|
-| `ctx.sql('SELECT ...')` | list de dicts via SQL direto no SQLite de alocação (só SELECT) |
+| `ctx.sql('SELECT ...')` | list de dicts via SQL direto no banco configurado (só SELECT) |
 | `ctx.today()` | string YYYY-MM-DD com a data atual |
 | `ctx.date_range(days=N)` | `(from_date, to_date)` dos últimos N dias |
 | `ctx.save_chart(fig)` | token `[chart:uuid]` |
@@ -93,9 +88,9 @@ Se `date_range` não estiver definido, usa a janela padrão da frequência:
 
 **Sempre que o usuário especificar um intervalo de análise, defina `date_range` ao criar a tarefa.**
 O task_code usa `from_date`/`to_date` normalmente — o daemon garante os valores corretos.
-Como a granularidade das tabelas de alocação é por quarter/mês (não por data de calendário),
-`from_date`/`to_date` tipicamente servem para rotular o período no título/conteúdo do relatório,
-e os filtros reais de dados usam `quarter`/`month_status`/`month_seq` (ou `year_month`).
+Se o domínio configurado não tiver granularidade por data de calendário (ver skill `dominio.md`),
+`from_date`/`to_date` servem para rotular o período no título/conteúdo do relatório, e os
+filtros reais de dados usam as colunas de período descritas na skill.
 
 | O usuário pediu | `date_range` correto |
 |---|---|
@@ -110,133 +105,19 @@ e os filtros reais de dados usam `quarter`/`month_status`/`month_seq` (ou `year_
 > ⚠️ **Ao testar**: `test_task_code(task_id, code)` sem `from_date`/`to_date` usa por padrão
 > "últimos 7 dias" — isso NÃO reflete o `date_range` real da tarefa. Para tarefas com
 > `date_range='today'`, `'mtd'` ou `'ytd'`, passe explicitamente `from_date`/`to_date`
-> equivalentes ao `date_range` (ex: `from_date=to_date=hoje` para `'today'`) para que
-> o resultado do teste corresponda ao que será gerado em produção. Caso contrário, o
-> teste pode mostrar dados de um dia/período diferente do esperado, mesmo que o código
-> esteja correto.
+> equivalentes ao `date_range` para que o resultado do teste corresponda ao que será gerado
+> em produção.
 
 ---
 
-## Templates canônicos
-
-### Relatório PDF com gráfico
-
-```python
-def run(from_date, to_date, ctx):
-    rows = ctx.sql("""
-        SELECT
-            key_account_code,
-            woi,
-            (allocation_W1 + allocation_W2 + allocation_W3 + allocation_W4 + allocation_W5) AS alocado
-        FROM ka_deal_allocation
-        WHERE month_status IN ('done', 'ongoing')
-    """)
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return ctx.generate_pdf('Relatório de Alocação', '## Sem dados no período.')
-
-    por_ka = df.groupby('key_account_code').agg(
-        alocado=('alocado', 'sum'),
-        woi_medio=('woi', 'mean'),
-    ).reset_index()
-
-    total_alocado = df['alocado'].sum()
-    kas_criticos  = df[df['woi'] < 10]['key_account_code'].nunique()
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle(f'Alocação — {from_date.strftime("%d/%m/%Y")} a {to_date.strftime("%d/%m/%Y")}',
-                 fontsize=13, fontweight='bold')
-
-    ax1 = axes[0]
-    ax1.bar(por_ka['key_account_code'], por_ka['alocado'], color='#3b82f6')
-    ax1.set_title('Alocação Total por Key Account')
-    plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
-
-    ax2 = axes[1]
-    ax2.bar(por_ka['key_account_code'], por_ka['woi_medio'], color='#f87171')
-    ax2.set_title('WOI Médio por Key Account')
-    plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
-
-    plt.tight_layout()
-    chart = ctx.save_chart(fig)
-
-    linhas = '\n'.join(
-        f"| {r['key_account_code']} | {r['alocado']:,.0f} | {r['woi_medio']:.1f} |"
-        for _, r in por_ka.iterrows()
-    )
-    conteudo = (
-        f"## Resumo\n\n{chart}\n\n"
-        f"| Métrica | Valor |\n|---|---|\n"
-        f"| Total alocado | {total_alocado:,.0f} |\n"
-        f"| KAs com WOI crítico | {kas_criticos} |\n\n"
-        f"## Por Key Account\n\n| KA | Alocado | WOI médio |\n|---|---|---|\n{linhas}\n"
-    )
-    return ctx.generate_pdf('Relatório de Alocação', conteudo)
-```
-
-### Planilha Excel — aba única
-
-```python
-def run(from_date, to_date, ctx):
-    rows = ctx.sql("""
-        SELECT key_account_code, product, quarter, month_seq, woi,
-               allocation_W1, allocation_W2, allocation_W3, allocation_W4, allocation_W5
-        FROM ka_deal_allocation
-        WHERE month_status IN ('done', 'ongoing')
-    """)
-    df = pd.DataFrame(rows)
-    return ctx.generate_excel(df, 'alocacao')
-```
-
-### Planilha Excel — múltiplas abas
-
-```python
-def run(from_date, to_date, ctx):
-    rows_input = ctx.sql("""
-        SELECT key_account_code, product, quarter, month_seq, req_qty, woi
-        FROM ka_input_data
-        WHERE month_status IN ('done', 'ongoing')
-    """)
-    rows_output = ctx.sql("""
-        SELECT key_account_code, product, quarter, month_seq,
-               allocation_W1, allocation_W2, allocation_W3, allocation_W4, allocation_W5
-        FROM ka_deal_allocation
-        WHERE month_status IN ('done', 'ongoing')
-    """)
-    df_input  = pd.DataFrame(rows_input)
-    df_output = pd.DataFrame(rows_output)
-    return ctx.generate_excel(
-        {'Entrada': df_input, 'Alocação': df_output},
-        'alocacao_detalhado',
-    )
-```
-
-### Monitor com gatilho condicional (preferido)
+## Monitores com gatilho condicional (preferido)
 
 > Para tarefas que só devem executar (e notificar) quando uma condição for atingida,
 > use os parâmetros `condition_sql`, `condition_operator` e `condition_threshold` ao criar a tarefa.
 > **Não escreva `ctx.notify()` no código** — a notificação é automática quando a condição é atingida.
-> `condition_sql` roda em **dialeto SQLite** — use `date('now')`, nunca `CURRENT_DATE`/`::text`/`TO_CHAR`.
+> `condition_sql` roda no dialeto do banco configurado (informado junto com estas regras).
 
-Exemplos de criação via `schedule_task`:
-
-```python
-# Alerta se KAs com WOI crítico > 10
-condition_sql = "SELECT COUNT(DISTINCT key_account_code) FROM ka_deal_allocation WHERE woi < 10"
-condition_operator = ">"
-condition_threshold = 10
-
-# Alerta se não houver nenhum deal completo no quarter atual
-condition_sql = "SELECT id FROM ka_deal_allocation WHERE deal > 0 AND month_status = 'ongoing' LIMIT 1"
-condition_operator = "is_not_empty"
-
-# Alerta se houver rollback aplicado
-condition_sql = "SELECT id FROM ka_deal_allocation WHERE rollback > 0 LIMIT 1"
-condition_operator = "is_not_empty"
-```
-
-A notificação automática inclui o detalhe da condição: ex. "Monitor de WOI crítico: 12 > 10".
+A notificação automática inclui o detalhe da condição: ex. "Monitor de X: 75 > 50".
 
 ---
 
@@ -288,11 +169,10 @@ plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
 ```
 
 ```python
-# ERRADO — dialeto Postgres não existe no SQLite de alocação
-rows = ctx.sql("SELECT status::text FROM ka_deal_allocation WHERE created_at::date = CURRENT_DATE")
+# ERRADO — usar sintaxe de outro dialeto SQL (verifique o dialeto informado)
+# e inventar nomes de tabela/coluna que não estão na skill dominio.md
 
-# CERTO — dialeto SQLite, sem cast, usando as colunas reais da tabela
-rows = ctx.sql("SELECT key_account_code FROM ka_deal_allocation WHERE month_status = 'ongoing'")
+# CERTO — usar apenas tabelas/colunas reais da skill, no dialeto do banco configurado
 ```
 
 ```python

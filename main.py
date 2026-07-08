@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import get_db, init_db, migrate_db, shift_dates_to_today
-from routers.allocation import router as allocation_router
+import db_config
 
 try:
     from dotenv import load_dotenv
@@ -126,7 +126,16 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.include_router(allocation_router, prefix="/allocation")
+
+
+@app.get("/app-info")
+def app_info():
+    """Identidade do pack de configuração — usada pelo dashboard para branding."""
+    return {
+        "nome": db_config.app_nome(),
+        "descricao": db_config.app_descricao(),
+        "configurado": db_config.is_configured(),
+    }
 
 
 def _error_body(status: int, exc_type: str, message: str, path: str) -> dict:
@@ -212,6 +221,13 @@ async def _daily_date_shifter():
 async def startup():
     init_db()
     migrate_db()
+    if db_config.is_configured():
+        logger.info(
+            "Pack de configuração: %s | banco: %s (%s)",
+            db_config.app_nome(), db_config.url_mascarada(), db_config.dialect_name(),
+        )
+    else:
+        logger.warning(db_config.MSG_NAO_CONFIGURADO)
     _init_vertex()
     delta = shift_dates_to_today()
     if delta:
@@ -481,7 +497,7 @@ async def transcribe_audio(audio: UploadFile = File(...)):
 
 @app.get("/")
 def root():
-    html = Path(__file__).parent / "mfg-dashboard.html"
+    html = Path(__file__).parent / "dashboard.html"
     return FileResponse(html, media_type="text/html")
 
 

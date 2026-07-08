@@ -1,0 +1,5 @@
+app:
+  nome: "Vendas Demo"
+  descricao: "Análise de vendas por produto, região e período"
+database:
+  url: "sqlite:///demo/vendas.db"

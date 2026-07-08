@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from db import get_db
-from allocation_db import ALLOCATION_DB_PATH
 from .md_parser import calculate_next_run
 from .runner import run_task_code, TaskCodeError
 
@@ -143,19 +142,14 @@ def _evaluate_condition(task: dict) -> tuple[bool, str]:
 
     Retorna (should_run, detail) onde detail é incluído na notificação automática.
     """
-    import sqlite3
+    import db_config
 
     sql      = (task.get("condition_sql") or "").strip()
     operator = (task.get("condition_operator") or "is_not_empty").strip()
     threshold = task.get("condition_threshold")
 
     try:
-        conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = [dict(r) for r in conn.execute(sql).fetchall()]
-        finally:
-            conn.close()
+        rows = db_config.run_select(sql)
     except Exception as exc:
         logger.warning("[daemon] Erro ao avaliar condition_sql da task %s: %s", task.get("id"), exc)
         return False, f"erro na condição: {exc}"

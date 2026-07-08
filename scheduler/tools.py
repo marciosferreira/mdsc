@@ -219,8 +219,8 @@ def schedule_monitor(
         description: O que monitora e qual a condição (ex: "Alerta se total de pedidos do dia >= 160").
         frequency: Com que frequência verificar. Use "every_5m", "every_1h", "daily", etc.
         condition_sql: Query SELECT que retorna um escalar ou linhas para avaliação (dialeto SQLite).
-                       Para escalar: "SELECT COUNT(*) FROM ka_deal_allocation WHERE woi < 10"
-                       Para existência: "SELECT id FROM ka_deal_allocation WHERE rollback > 0 LIMIT 1"
+                       Para escalar: "SELECT COUNT(*) FROM tabela WHERE metrica < 10"
+                       Para existência: "SELECT id FROM tabela WHERE condicao LIMIT 1"
         condition_operator: Como comparar o resultado:
                             ">"  — executa se valor > threshold
                             ">=" — executa se valor >= threshold
@@ -250,17 +250,16 @@ def schedule_monitor(
 
     # Valida condition_sql executando antes de salvar
     try:
-        import sqlite3
-        from allocation_db import ALLOCATION_DB_PATH
-        _conn = sqlite3.connect(str(ALLOCATION_DB_PATH))
-        _conn.execute(condition_sql).fetchone()
-        _conn.close()
+        import db_config
+        db_config.run_select(condition_sql)
     except Exception as exc:
+        import db_config
+        dica = db_config.get_secao("Dica para condition_sql") or "consulte o schema em config/dominio.md."
         return (
             f"❌ **condition_sql inválido:** a query falhou com o erro abaixo.\n"
             f"Corrija antes de criar o monitor.\n\n"
             f"Erro: `{exc}`\n\n"
-            f"Dica: tabelas disponíveis são `ka_input_data`, `ka_deal_allocation`."
+            f"Dica: {dica}"
         )
 
     effective_date_range = date_range or "today"
